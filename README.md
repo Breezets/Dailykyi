@@ -111,60 +111,17 @@ frontend/public/mascots/
 
 ---
 
-## 🧑‍💻 自定义社交链接
-
-网站底部的 B 站 / GitHub / 文档链接在下面这个文件里修改：
-
-👉 `frontend/src/constants/site.ts`
-
-```typescript
-export const SITE = {
-  version:    'v0.1.1',
-  authorName: '你的昵称',                    // 显示为 "B站 · 昵称"
-  slogan:     '22 & 33 陪你做每日任务~',
-  copyright:  '© 2026 Dailykyi',
-  docs:       'https://你的文档地址',         // 使用文档 / Wiki
-  github:     'https://github.com/你/Dailykyi', // 仓库地址
-  bilibili:   'https://space.bilibili.com/你的UID', // B 站空间
-  license:    'MIT License',
-};
-```
-
-改完后重新构建前端：`cd frontend && npm run build` 并重启 nginx 容器即可生效。
-
----
-
 ## 📂 项目结构
 
 ```
 Dailykyi/
-├── backend/                 # FastAPI 后端
-│   ├── app/
-│   │   ├── routers/         # auth / accounts / tasks / logs / system / dashboard
-│   │   ├── services/        # bili_api + WBI签名 / scheduler / notify / task_handlers
-│   │   ├── models/          # SQLAlchemy ORM 模型
-│   │   └── schemas/         # Pydantic 请求/响应模型
-│   ├── alembic/             # 数据库迁移
-│   ├── Dockerfile
-│   └── requirements.txt
-├── frontend/                # Vue 3 + Vite + TS + Element Plus
-│   ├── src/
-│   │   ├── views/           # Dashboard / TaskConfig / AccountManage / LogViewer / SystemSettings / Login
-│   │   ├── components/      # KyiSidebar / KyiHeader / KyiCard / KyiQrModal / KyiThemeSwitch / KyiTimeline
-│   │   ├── stores/          # Pinia：auth、theme
-│   │   └── constants/site.ts
-│   └── public/mascots/      # 22 & 33 角色图位
-├── docker/                  # Nginx 容器（反向代理 + 托管前端静态资源）
-│   ├── Dockerfile
-│   └── nginx.conf
-├── scripts/init_db.py       # 单独初始化 DB 的脚本
+├── backend/                 # FastAPI 后端 (Python)
+├── frontend/                # Vue 3 前端 (Vite / TS / Element Plus)
+├── docker/                  # Nginx 反向代理 + 前端静态资源托管
+├── scripts/init_db.py       # 数据库初始化脚本
 ├── docker-compose.yml       # 生产：nginx + backend + SQLite 数据卷
 ├── docker-compose.dev.yml   # 开发：前后端热重载
-├── .env.example             # 环境变量模板（请复制为 .env）
-├── .gitignore
-├── .gitattributes
-├── LICENSE                  # MIT
-└── README.md
+└── .env.example             # 环境变量模板（复制为 .env 修改）
 ```
 
 ---
@@ -172,16 +129,11 @@ Dailykyi/
 ## ⚠️ 注意事项
 
 1. **扫码登录回调**：B 站 APP 扫码后的回调需要能从手机访问面板地址。本地 `localhost` 可能回调失败，建议用**局域网 IP**（如 `http://192.168.x.x:23333`）或直接部署到公网服务器后再扫码。
-2. **任务调度调试**：调度器运行状态可通过后端日志查看：
+2. **查看运行日志**：调度器与任务执行状态可通过后端日志查看：
    ```bash
    docker logs -f dailykyi-backend
    ```
-3. **数据库迁移**：ORM 模型改动后需执行 Alembic 迁移：
-   ```bash
-   docker exec dailykyi-backend alembic revision --autogenerate -m "xxx"
-   docker exec dailykyi-backend alembic upgrade head
-   ```
-4. **数据持久化**：SQLite DB 与运行日志分别保存在 docker named volume `dailykyi_db-data` 和 `dailykyi_logs` 中，`docker compose down` **不会**删除它们（加 `-v` 才会，慎用）。
+3. **数据持久化**：SQLite DB 与运行日志保存在 docker named volume 中，`docker compose down` **不会**删除数据（加 `-v` 才会，慎用）。
 
 ---
 
