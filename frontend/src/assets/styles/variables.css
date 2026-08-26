@@ -1,0 +1,40 @@
+:root {
+  /* 布局尺寸（桌面端） */
+  --kyi-sidebar-width: 220px;
+  --kyi-header-height: 60px;
+  --kyi-border-radius: 12px;
+
+  /* 主题色占位，实际在 theme-*.css 覆盖 */
+  --kyi-primary: #fb7299;
+  --kyi-primary-light: #ff8eb0;
+  --kyi-primary-dark: #e05a82;
+  --kyi-secondary: #23ade5;
+  --kyi-bg: #f5f7fa;
+  --kyi-bg-gradient: linear-gradient(135deg, #ffe6f0 0%, #f5f7fa 100%);
+  --kyi-bg-soft: #f7f9fc;
+  --kyi-card-bg: #ffffff;
+  --kyi-text: #303133;
+  --kyi-text-secondary: #909399;
+  --kyi-success: #67c23a;
+  --kyi-warning: #e6a23c;
+  --kyi-danger: #f56c6c;
+  --kyi-border: #ebeef5;
+  --kyi-sidebar-bg: #ffffff;
+  --kyi-sidebar-text: #606266;
+  --kyi-sidebar-active-bg: #fff0f3;
+}
+
+/* ============ 平板 / 大屏 ============ */
+@media (max-width: 1024px) {
+  :root {
+    --kyi-sidebar-width: 200px;
+  }
+}
+
+/* ============ 手机端：隐藏侧边栏，header 扩展到最左 ============ */
+@media (max-width: 768px) {
+  :root {
+    --kyi-sidebar-width: 0px;
+    --kyi-header-height: 54px;
+  }
+}

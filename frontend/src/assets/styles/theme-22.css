@@ -1,0 +1,41 @@
+html[data-theme="22"] {
+  --kyi-primary: #fb7299;
+  --kyi-primary-light: #ff8eb0;
+  --kyi-primary-dark: #e05a82;
+  --kyi-secondary: #23ade5;
+  --kyi-bg: #f5f7fa;
+  --kyi-bg-gradient: linear-gradient(135deg, #ffe6f0 0%, #f5f7fa 100%);
+  --kyi-card-bg: #ffffff;
+  --kyi-text: #303133;
+  --kyi-text-secondary: #909399;
+  --kyi-success: #67c23a;
+  --kyi-warning: #e6a23c;
+  --kyi-danger: #f56c6c;
+  --kyi-sidebar-bg: #ffffff;
+  --kyi-sidebar-text: #606266;
+  --kyi-sidebar-active-bg: #fff0f3;
+}
+
+.mascot-22, .mascot-33 {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  font-weight: bold;
+  color: white;
+}
+.mascot-22 {
+  background: linear-gradient(135deg, #FB7299, #ff8eb0);
+}
+.mascot-22::after {
+  content: "22";
+}
+.mascot-33 {
+  background: linear-gradient(135deg, #23ADE5, #5cc8f5);
+}
+.mascot-33::after {
+  content: "33";
+}

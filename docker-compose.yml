@@ -1,0 +1,40 @@
+services:
+  backend:
+    build: ./backend
+    container_name: dailykyi-backend
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    env_file:
+      - .env
+    environment:
+      - DAILYKYI_DATABASE_URL=${DAILYKYI_DATABASE_URL:-sqlite+aiosqlite:///data/dailykyi.db}
+      - TZ=Asia/Shanghai
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - dailykyi-net
+
+  nginx:
+    build: ./docker
+    container_name: dailykyi-nginx
+    ports:
+      - "23333:80"
+    volumes:
+      - ./frontend/dist:/usr/share/nginx/html:ro
+      - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - dailykyi-net
+
+networks:
+  dailykyi-net:
+    driver: bridge

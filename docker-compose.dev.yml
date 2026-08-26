@@ -1,0 +1,38 @@
+services:
+  backend-dev:
+    build: ./backend
+    container_name: dailykyi-backend-dev
+    volumes:
+      - ./backend:/app
+      - ./data:/app/data
+      - ./logs:/app/logs
+    env_file:
+      - .env
+    environment:
+      - DAILYKYI_DATABASE_URL=${DAILYKYI_DATABASE_URL:-sqlite+aiosqlite:///data/dailykyi.db}
+      - DAILYKYI_DEBUG=True
+      - DAILYKYI_LOG_LEVEL=${DAILYKYI_LOG_LEVEL:-DEBUG}
+    ports:
+      - "8000:8000"
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    networks:
+      - dailykyi-dev-net
+
+  frontend-dev:
+    image: node:20-alpine
+    container_name: dailykyi-frontend-dev
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+    ports:
+      - "3000:3000"
+    command: sh -c "npm install && npm run dev"
+    environment:
+      - NODE_ENV=development
+      - VITE_API_PROXY=http://backend-dev:8000
+    networks:
+      - dailykyi-dev-net
+
+networks:
+  dailykyi-dev-net:
+    driver: bridge

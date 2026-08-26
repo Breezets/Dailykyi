@@ -1,0 +1,66 @@
+# ================================================================
+# Dailykyi · 根目录 .gitignore（为开源发布做的脱敏 + 去构建产物）
+# 想恢复本地数据？docker compose up -d 会自动创建空数据库。
+# ================================================================
+
+# ---------- 敏感 / 本地数据 ----------
+# Docker 运行时挂载的 DB（含账号 cookies / 任务日志 / 管理员密码哈希 / Server酱 key）
+backend/data/
+# 也保护根目录可能存在的数据
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# 本地环境变量（含默认密码覆盖 / 私钥 / 真实端口）
+.env
+.env.local
+.env.*.local
+
+# Cookie、凭据、日志备份
+*.bak
+*.dump
+*.sql
+*.log
+
+# ---------- 依赖包与虚拟环境 ----------
+# Python venv / poetry / pipenv
+backend/.venv/
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+
+# Node / 前端依赖
+node_modules/
+frontend/node_modules/
+
+# ---------- 构建产物（Docker build 时会重新生成，不要上传）----------
+frontend/dist/
+frontend/.vite/
+*.tsbuildinfo
+
+# ---------- IDE / 编辑器 ----------
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ---------- Docker 本地挂载卷目录（docker compose 会自动创建）----------
+volumes/
+docker-data/
+postgres-data/
+mysql-data/
+
+# ---------- 其他平台临时目录 ----------
+.cache/
+.temp/
+.tmp/
