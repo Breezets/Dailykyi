@@ -1,8 +1,8 @@
 # Dailykyi · 每日姬
 
 <p align="center">
-  <strong>Dailykyi —— 22 & 33 的 B 站每日任务小助手</strong><br>
-  B 站投币 / 观看 / 分享 自动化调度 · 多账号管理 · 实时日志 · Server酱 推送
+  <strong>B 站每日任务自动化 · 22 & 33 主题管理面板</strong><br>
+  投币 / 观看 / 分享 定时调度 · 多账号管理 · 实时日志 · Server酱 推送
 </p>
 
 <p align="center">
@@ -14,287 +14,183 @@
   <img alt="Release" src="https://img.shields.io/badge/version-v0.1.1-23ADE5"/>
 </p>
 
-Dailykyi 是一个基于 FastAPI + Vue3 的 B 站每日任务自动化工具，支持投币、观看、分享等任务的定时调度、多账号管理、日志监控和 Server酱 移动端推送。
+Dailykyi 是一个可视化的 B 站每日任务自动化工具。只需完成一次扫码登录，它会按你设定的策略自动完成 **投币 / 观看 / 分享 / 直播签到 / 银瓜子兑换** 等任务，并把执行结果推送到你的手机上。
 
-## 功能特性
-
-- 🎀 22 & 33 双主题切换（粉 / 蓝）
-- 🔐 管理员账号登录，首次登录强制修改默认密码
-- 📱 B 站扫码登录，自动保存 Cookie
-- ⚙️ 可视化任务配置：投币策略、观看时长、定时调度
-- 📊 仪表盘：账号状态、今日经验、任务统计
-- 📜 执行日志与实时日志流
-- 🔔 Bark / Server 酱推送通知
-- 🐳 Docker 一键部署
-
-## 系统要求
-
-- Docker >= 20.10
-- Docker Compose >= 2.0
-
-## 生产部署
-
-```bash
-cp .env.example .env                     # 修改密钥与默认密码
-cd frontend && npm install && npm run build && cd ..
-docker-compose up -d                     # 构建并启动服务
-# 打开浏览器访问 http://localhost:23333
-```
-
-> 注：原需求端口 `233333` 超出 TCP 端口范围，已调整为合法端口 `23333`。
-
-首次启动后，使用默认账号 `2233` / 密码 `tv23333` 登录，并按提示修改密码。
-
-> 部署到服务器时，请将 `localhost` 替换为服务器 IP 或域名。
-
-## 本地测试步骤
-
-1. 克隆仓库
-   ```bash
-   git clone <repo-url>
-   cd Dailykyi
-   ```
-
-2. 复制环境变量
-   ```bash
-   cp .env.example .env
-   ```
-
-3. 构建前端并启动服务
-   ```bash
-   cd frontend && npm install && npm run build && cd ..
-   docker-compose up -d
-   ```
-
-4. 访问面板
-   ```
-   http://localhost:23333
-   ```
-
-5. 使用默认账号登录
-   - 用户名：`2233`
-   - 密码：`tv23333`
-
-## 开发调试
-
-使用 `docker-compose.dev.yml` 启动开发模式：
-
-```bash
-docker-compose -f docker-compose.dev.yml up
-```
-
-- 前端：http://localhost:3000（代码挂载，热重载）
-- 后端：http://localhost:8000（代码挂载，`--reload` 自动重启）
-
-前端 Vite 已配置 `/api` 代理到 `http://localhost:8000`，可直接联调。
-
-## 首次初始化数据库
-
-若需要单独初始化数据库表结构，可执行：
-
-```bash
-python scripts/init_db.py
-```
-
-或在容器内执行：
-
-```bash
-docker exec dailykyi-backend python -c "import asyncio; from app.database import init_db; asyncio.run(init_db())"
-```
-
-## 目录结构
-
-```
-Dailykyi/
-├── backend/                 # FastAPI 后端
-│   ├── app/
-│   │   ├── main.py
-│   │   ├── routers/
-│   │   ├── services/
-│   │   └── ...
-│   ├── Dockerfile
-│   └── requirements.txt
-├── frontend/                # Vue3 前端
-│   ├── src/
-│   ├── index.html
-│   └── package.json
-├── docker/                  # Nginx 镜像与配置
-│   ├── Dockerfile
-│   └── nginx.conf
-├── scripts/
-│   └── init_db.py           # 数据库初始化脚本
-├── data/                    # SQLite 数据目录（运行后生成）
-├── logs/                    # 日志目录（运行后生成）
-├── docker-compose.yml       # 生产部署
-├── docker-compose.dev.yml   # 开发调试
-├── .env.example             # 环境变量示例
-└── README.md
-```
-
-## 本地扫码登录测试说明
-
-B 站扫码登录需要回调到服务器地址。本地使用 `localhost` 时，二维码可正常生成，但 B 站 APP 扫码后的回调可能无法被容器正确接收。
-
-建议：
-
-- 本地先测试 UI 功能、任务配置保存、仪表盘数据展示。
-- 使用局域网 IP（如 `192.168.x.x`）代替 `localhost` 进行扫码测试。
-- 扫码登录与任务执行建议在服务器部署后测试。
-
-## 任务测试说明
-
-- 本地可正常测试任务配置页面的表单交互。
-- 手动触发任务需要有效的 B 站 Cookie，需在完成扫码登录后测试。
-- 调度器是否正常运可通过后端日志查看：
-  ```bash
-  docker logs -f dailykyi-backend
-  ```
-
-## 免责声明
-
-本项目仅供学习交流使用。使用自动化工具操作 B 站账号可能存在风险，请自行评估并承担相应后果。
+前端基于 Vue 3 + Element Plus（22 & 33 双主题），后端基于 FastAPI + SQLite，所有服务通过 Docker Compose 一键拉起，**5 分钟即可部署完成**。
 
 ---
 
-## 🛠️ 开源发布前必做（清空敏感数据）
+## ✨ 功能特性
 
-> **如果直接把 Dailykyi 文件夹拖到 GitHub，会把你本地登录过的 B 站 Cookies、密码哈希、Server酱 Key、执行日志等隐私数据一并传上去。**
-> 请先做以下 3 步再上传，30 秒搞定。
-
-### 第 1 步：停掉容器 + 删除本地数据库
-
-```bash
-# 停容器（同时清掉 docker 生成的数据卷）
-docker compose down -v
-
-# 删除后端目录里实际挂载出的 SQLite DB（里面有加密后的账号 Cookie / 任务日志 / 管理员密码哈希）
-# Windows PowerShell:
-Remove-Item -Recurse -Force backend\data  -ErrorAction SilentlyContinue
-Remove-Item -Recurse -Force data            -ErrorAction SilentlyContinue
-Remove-Item -Recurse -Force backend\*.db   -ErrorAction SilentlyContinue
-Remove-Item -Recurse -Force backend\logs   -ErrorAction SilentlyContinue
-
-# 或 macOS / Linux:
-# rm -rf backend/data backend/*.db backend/logs
-```
-
-### 第 2 步：删除本地覆盖的环境变量
-
-```bash
-# Windows PowerShell
-Remove-Item .env -ErrorAction SilentlyContinue
-
-# 或 macOS / Linux:
-# rm -f .env
-```
-
-> ⚠️ **不要删除 `.env.example`** —— 这是给用户看的模板，里面没有真实值。
-
-### 第 3 步：（可选）删除 mascots 里的图片，换成占位图说明
-
-你的 2233 原创图如果不打算开放授权，建议不要上传。我们在项目内保留 `public/mascots/` 目录作为位置，并在下面提供替换说明即可。README 已经单独有一节讲这个。
-
-做完以上三步，`git status` 应该只显示源码 / 配置 / 图片占位目录，不会出现 `backend/data/*.db` 或 `.env`。
+| 分类 | 功能 |
+|---|---|
+| 🎨 UI | 22 粉 / 33 蓝 双主题一键切换 · 侧边栏吉祥物轮播图 |
+| 🔐 账号 | 管理员密码登录 · 首次强制改密 · B 站扫码登录自动存 Cookie |
+| 🪄 任务 | 投币策略（数量 / 是否给自己 / 按优先分区）· 观看时长 · 分享 · 直播签到 · 银瓜子兑换硬币 |
+| ⏰ 调度 | 可视化配置每日执行时间 · Cron 定时触发 · 支持手动立即执行 |
+| 📊 仪表盘 | 多账号状态一览 · 今日经验增长 · 任务成功 / 失败统计 |
+| 📜 日志 | 结构化任务列表 · 实时日志流 WebSocket 推送 · 按账号 / 级别过滤 |
+| 🔔 推送 | Server酱 微信公众号推送 · Bark iOS 推送（失败提醒 / 每日报告） |
+| 🐳 部署 | Docker Compose 三容器编排（nginx + frontend-static + backend + sqlite持久化） |
 
 ---
 
-## 🚀 上传到 GitHub（完整流程）
+## 🚀 快速开始
+
+### 方式一：Docker 一键部署（推荐）
+
+> 环境要求：Docker ≥ 20.10，Docker Compose ≥ 2.0
 
 ```bash
-# 1. 进入项目目录
+# 1. 克隆仓库
+git clone https://github.com/breezets/Dailykyi.git
 cd Dailykyi
 
-# 2. 初始化 git 仓库（第一次）
-git init
-git checkout -b main      # 统一使用 main 分支
+# 2. 复制环境变量模板（按需修改 SECRET_KEY / DEFAULT_ADMIN_PASSWORD）
+cp .env.example .env
 
-# 3. （重要）先确认 .gitignore 生效。这条命令应该不列出 *.db / .env / node_modules / .venv
-git status
+# 3. 构建前端静态资源
+cd frontend && npm install && npm run build && cd ..
 
-# 4. 配置你的身份（第一次用 git 需要）
-git config user.name  "你的 GitHub 用户名"
-git config user.email "你的 GitHub 邮箱"
-
-# 5. 第一次提交
-git add -A
-git commit -m "feat: initial release v0.1.1"
-
-# 6. 去 https://github.com/new 创建一个空仓库，名字叫 Dailykyi
-#    勾选 → ❌不要勾选 README / .gitignore / LICENSE（这些已经在本地有了）
-
-# 7. 关联远程仓库并推送
-git remote add origin https://github.com/<你的GitHub用户名>/Dailykyi.git
-git push -u origin main
+# 4. 一键启动（三容器：nginx / backend / sqlite 数据卷）
+docker compose up -d
 ```
 
-> 如果你开启了 2FA，会提示输入密码时用 **Personal Access Token (PAT)** 代替。到 https://github.com/settings/tokens 生成一个只勾选 `repo` 权限的 token 即可。
+启动完成后访问：**http://localhost:23333**
+
+| 默认项 | 值 |
+|---|---|
+| 默认账号 | `2233` |
+| 默认密码 | `tv23333` |
+
+> ⚠️ 首次登录会**强制修改默认密码**。部署到公网服务器时，把 `localhost` 换成服务器 IP 或域名即可。
 
 ---
 
-## 🎨 吉祥物图片替换（给使用者看）
+### 方式二：本地开发调试（前后端热重载）
 
-Dailykyi 预置了 22 & 33 角色图片位，你可以把自己的 2233 日常图放进去（不会随仓库同步，需要自己放）。
+```bash
+docker compose -f docker-compose.dev.yml up
+```
+
+- 前端开发服务器（Vite HMR）：http://localhost:3000
+- 后端 API（FastAPI --reload）：http://localhost:8000
+- API 文档：http://localhost:8000/docs
+- 前端 Vite 已配置 `/api` 代理 → `http://localhost:8000`，直接联调无需处理跨域。
+
+---
+
+## ⚙️ 环境变量说明（`.env`）
+
+复制 `.env.example` 为 `.env` 后修改，**不要把真实值写进 `.env.example`**：
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `SECRET_KEY` | `change-me-please` | JWT 签名密钥，**生产必须改为随机长字符串** |
+| `DEFAULT_ADMIN_USERNAME` | `2233` | 首次启动时自动创建的管理员用户名 |
+| `DEFAULT_ADMIN_PASSWORD` | `tv23333` | 首次启动的默认密码，登录后会强制修改 |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | `1440` | 登录 Token 过期时间（分钟，默认 1 天） |
+| `BILI_WBI_CACHE_SECONDS` | `600` | B 站 WBI 签名缓存时间 |
+| `BACKEND_CORS_ORIGINS` | `*` | 允许跨域的前端域名，正式环境建议收紧 |
+| `LOG_LEVEL` | `INFO` | 日志级别（DEBUG / INFO / WARNING / ERROR） |
+
+---
+
+## 🎨 吉祥物图片替换
+
+Dailykyi 预置了 22 & 33 的角色图位，直接覆盖同名文件即可生效，**无需重新构建前端**：
 
 ```
 frontend/public/mascots/
-├── 01.png ~ 09.png            ← 1:1 方图（1000×1000），用于侧边栏轮播
+├── 01.png ~ 09.png            ← 1:1 方图，侧边栏轮播用
 └── homephoto/
-    ├── home-01.png ~ home-18.* ← 首页横幅图（任意比例都会自动适配）
+    ├── home-01.png ~ home-18.png/jpg/webp   ← 首页横幅图（任意比例自动适配）
 ```
 
-**替换方法**：直接覆盖同名文件，刷新浏览器即可看到新图，无需重新构建。推荐把图缩到 **400×400 / 800×宽** 左右，避免占带宽。
+> 建议把图片压缩到 **400×400（方图）/ 800px 宽（横幅）** 以内，提升页面加载速度。
 
 ---
 
-## 📁 目录结构（更新版）
+## 🧑‍💻 自定义社交链接
+
+网站底部的 B 站 / GitHub / 文档链接在下面这个文件里修改：
+
+👉 `frontend/src/constants/site.ts`
+
+```typescript
+export const SITE = {
+  version:    'v0.1.1',
+  authorName: '你的昵称',                    // 显示为 "B站 · 昵称"
+  slogan:     '22 & 33 陪你做每日任务~',
+  copyright:  '© 2026 Dailykyi',
+  docs:       'https://你的文档地址',         // 使用文档 / Wiki
+  github:     'https://github.com/你/Dailykyi', // 仓库地址
+  bilibili:   'https://space.bilibili.com/你的UID', // B 站空间
+  license:    'MIT License',
+};
+```
+
+改完后重新构建前端：`cd frontend && npm run build` 并重启 nginx 容器即可生效。
+
+---
+
+## 📂 项目结构
 
 ```
 Dailykyi/
 ├── backend/                 # FastAPI 后端
 │   ├── app/
-│   │   ├── main.py
 │   │   ├── routers/         # auth / accounts / tasks / logs / system / dashboard
-│   │   ├── services/        # bili_api, notify, scheduler, task_handlers
-│   │   ├── models/
-│   │   ├── schemas/
-│   │   └── ...
+│   │   ├── services/        # bili_api + WBI签名 / scheduler / notify / task_handlers
+│   │   ├── models/          # SQLAlchemy ORM 模型
+│   │   └── schemas/         # Pydantic 请求/响应模型
+│   ├── alembic/             # 数据库迁移
 │   ├── Dockerfile
 │   └── requirements.txt
-├── frontend/                # Vue3 + Vite + TS + Element Plus
+├── frontend/                # Vue 3 + Vite + TS + Element Plus
 │   ├── src/
-│   │   ├── views/           # Dashboard / TaskConfig / AccountManage / LogViewer / SystemSettings
-│   │   ├── components/      # KyiSidebar / KyiHeader / KyiCard / KyiQrModal / KyiThemeSwitch
-│   │   ├── stores/          # auth, theme
-│   │   ├── api/             # account, task, log, system, auth, dashboard
-│   │   └── constants/site.ts# 【改这里：你的 B 站/GitHub/博客链接】
-│   ├── public/mascots/      # 吉祥物图片位
-│   ├── index.html
-│   └── package.json
-├── docker/                  # Nginx 镜像与配置
+│   │   ├── views/           # Dashboard / TaskConfig / AccountManage / LogViewer / SystemSettings / Login
+│   │   ├── components/      # KyiSidebar / KyiHeader / KyiCard / KyiQrModal / KyiThemeSwitch / KyiTimeline
+│   │   ├── stores/          # Pinia：auth、theme
+│   │   └── constants/site.ts
+│   └── public/mascots/      # 22 & 33 角色图位
+├── docker/                  # Nginx 容器（反向代理 + 托管前端静态资源）
 │   ├── Dockerfile
 │   └── nginx.conf
-├── scripts/
-│   └── init_db.py           # 数据库初始化脚本
-├── docker-compose.yml       # 生产部署
-├── docker-compose.dev.yml   # 开发调试
-├── .env.example             # 环境变量示例（不要填真实值）
-├── .gitignore               # 已屏蔽 DB/.env/node_modules/.venv 等
+├── scripts/init_db.py       # 单独初始化 DB 的脚本
+├── docker-compose.yml       # 生产：nginx + backend + SQLite 数据卷
+├── docker-compose.dev.yml   # 开发：前后端热重载
+├── .env.example             # 环境变量模板（请复制为 .env）
+├── .gitignore
+├── .gitattributes
 ├── LICENSE                  # MIT
 └── README.md
 ```
 
-## 🧑‍💻 开源社交链接（在网站底部展示）
+---
 
-打开文件 [frontend/src/constants/site.ts](file:///c:/Users/xiaoz/Desktop/Dailykyi/frontend/src/constants/site.ts)，修改里面的：
+## ⚠️ 注意事项
 
-- `docs`：使用文档地址（你的技术博客 / GitHub Wiki）
-- `github`：你的 GitHub 仓库地址
-- `bilibili`：B 站空间链接，例如 `https://space.bilibili.com/123456789`
-- `authorName`：你的昵称，会显示在"B站 · 昵称"上
-- `copyright`、`license`、`version`、`slogan`
+1. **扫码登录回调**：B 站 APP 扫码后的回调需要能从手机访问面板地址。本地 `localhost` 可能回调失败，建议用**局域网 IP**（如 `http://192.168.x.x:23333`）或直接部署到公网服务器后再扫码。
+2. **任务调度调试**：调度器运行状态可通过后端日志查看：
+   ```bash
+   docker logs -f dailykyi-backend
+   ```
+3. **数据库迁移**：ORM 模型改动后需执行 Alembic 迁移：
+   ```bash
+   docker exec dailykyi-backend alembic revision --autogenerate -m "xxx"
+   docker exec dailykyi-backend alembic upgrade head
+   ```
+4. **数据持久化**：SQLite DB 与运行日志分别保存在 docker named volume `dailykyi_db-data` 和 `dailykyi_logs` 中，`docker compose down` **不会**删除它们（加 `-v` 才会，慎用）。
 
-改完后执行一次 `cd frontend && npm run build` 并重启 nginx，网站底部就能看到你的社交链接啦。
+---
 
-## License
+## 🛡️ 免责声明
 
-MIT License —— 详见 [LICENSE](./LICENSE) 文件。
+本项目仅供学习交流使用。使用自动化工具操作 B 站账号可能违反平台相关条款，存在封号风险，请自行评估并承担相应后果。
+
+---
+
+## 📄 License
+
+MIT —— 详见 [LICENSE](./LICENSE)
