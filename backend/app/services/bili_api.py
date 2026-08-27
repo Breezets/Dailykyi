@@ -133,6 +133,11 @@ class BiliClient:
             data = dict(data or {})
             data.setdefault("csrf", self.csrf)
 
+        # B 站 POST 接口必查 Origin 头（缺了会返回 code=0 但不记录业务行为，是 share/coin 类接口"看着成功但没经验"的根因）
+        if method.upper() == "POST":
+            extra_headers = dict(extra_headers or {})
+            extra_headers.setdefault("Origin", "https://www.bilibili.com")
+
         try:
             resp = await client.request(method, url, params=params, data=data, headers=extra_headers)
         except httpx.HTTPError as exc:
@@ -260,8 +265,22 @@ class BiliClient:
     # ====== 用户信息 ======
 
     async def get_user_info(self) -> dict[str, Any]:
-        """GET x/web-interface/nav。"""
-        payload = await self._request("GET", "x/web-interface/nav")
+        """GET x/web-interface/nav，携带浏览器风控指纹参数避免被判定爬虫。"""
+        # 伪造浏览器 canvas / webgl 指纹（nav 风控需要，否则 isLogin 时真而不计经验）
+        dm_img_list = "[]"
+        # base64 伪造一段 1x1 像素 jpeg（dm_img_str / dm_cover_img_str 格式要求）
+        dm_img_str = (
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        )
+        dm_cover_img_str = (
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNgYAAAAAMAASsB0HwAAAAASUVORK5CYII="
+        )
+        params: dict[str, Any] = {
+            "dm_img_list": dm_img_list,
+            "dm_img_str": dm_img_str,
+            "dm_cover_img_str": dm_cover_img_str,
+        }
+        payload = await self._request("GET", "x/web-interface/nav", params=params)
         return payload["data"]
 
     async def get_nav_info(self) -> dict[str, Any]:
@@ -272,6 +291,32 @@ class BiliClient:
         """从 nav 响应 data.money 提取当前硬币数。"""
         data = await self.get_user_info()
         return int(data.get("money", 0))
+
+    # ====== 经验奖励状态 ======
+
+    async def get_daily_exp_reward(self) -> dict[str, Any]:
+        """查当日基础经验奖励是否已领取（login/watch/share 为 bool；coins 为今日投币已得经验）。
+
+        B 站 /x/member/web/exp/reward 接口真实返回字段（按官方 bilibili-api-collect 文档）：
+          login: bool    今日是否已登录（完成奖励 5 经验）
+          watch: bool    今日是否已观看（完成奖励 5 经验）
+          coins: num     今日投币已得经验（上限 50）
+          share: bool    今日是否已分享（完成奖励 5 经验）
+          email/tel/safe_question/identify_card: bool（账号安全一次性任务）
+        注意：本接口不返回 *_exp 数值字段，任何对 login_exp / share_exp 等的读取都是错的。
+        """
+        payload = await self._request(
+            "GET", "x/member/web/exp/reward",
+            extra_headers={"Referer": "https://www.bilibili.com/"},
+        )
+        data = payload.get("data", {}) or {}
+        return {
+            "login": bool(data.get("login", False)),
+            "watch": bool(data.get("watch", False)),
+            "share": bool(data.get("share", False)),
+            "coins": int(data.get("coins", 0) or 0),
+            "raw": data,
+        }
 
     # ====== 视频相关 ======
 
@@ -334,26 +379,90 @@ class BiliClient:
         )
         return payload.get("data", {})
 
-    async def heartbeat(self, bvid: str, cid: int, played_time: int) -> dict[str, Any]:
-        """POST x/click-interface/web/heartbeat（模拟观看进度上报）。"""
+    async def heartbeat(
+        self,
+        bvid: str,
+        cid: int,
+        played_time: int,
+        *,
+        dt: int = 0,
+        start_ts: int = 0,
+        real_played: int = 0,
+    ) -> dict[str, Any]:
+        """POST x/click-interface/web/heartbeat（真实播放进度上报）。
+
+        为通过 B 站风控判定：
+          - played_time 与 dt 必须匹配（两次上报的 dt ≈ played_time 差值）
+          - 需带上 play_type=1 / type=3（播放页常规上报）
+          - start_ts 是视频开始播放的 unix 时间戳
+          - Referer 必须为该视频页
+        """
+        import secrets
+
         data: dict[str, Any] = {
+            "type": 3,                    # 3 = 播放页 heartbeat
+            "sub_type": 0,
+            "play_type": 1,               # 1 = 普通播放
             "bvid": bvid,
             "cid": cid,
             "played_time": played_time,
+            "progress": real_played if real_played > 0 else played_time,
+            "dt": max(int(dt) * 1000, 0), # 与上次上报的真实间隔（毫秒）
+            "start_ts": start_ts if start_ts > 0 else int(time.time()),
+            "sid": int(time.time() * 1000) & 0xFFFFFFFF,
+            "spmid": "333.999",
             "csrf": self.csrf,
         }
-        payload = await self._request("POST", "x/click-interface/web/heartbeat", data=data)
+        # 加一个 8 位随机串（防缓存/去重）
+        data["visit_id"] = secrets.token_hex(4)
+        payload = await self._request(
+            "POST", "x/click-interface/web/heartbeat",
+            data=data,
+            extra_headers={"Referer": f"https://www.bilibili.com/video/{bvid}"},
+        )
         return payload.get("data", {})
 
+    async def bvid_to_aid(self, bvid: str) -> int:
+        """根据 bvid 解析 aid（分享接口底层靠 aid）。"""
+        params = {"bvid": bvid}
+        payload = await self._request(
+            "GET", "x/web-interface/view", params=params,
+            extra_headers={"Referer": f"https://www.bilibili.com/video/{bvid}"},
+        )
+        return int(payload.get("data", {}).get("aid", 0))
+
     async def share_video(self, bvid: str) -> dict[str, Any]:
-        """POST x/web-interface/share/add（需要 CSRF + 视频 Referer）。"""
-        data: dict[str, Any] = {"bvid": bvid, "csrf": self.csrf}
+        """POST x/web-interface/share/add。
+
+        B 站 Web 端分享接口（鉴权 Cookie + buvid3）。参考可跑通的开源脚本与官方文档：
+          - 必带：aid / bvid / csrf / share_channel
+          - 不带：source=pc_web（错值，会被判异常；旧版风控字段已废弃，省略即可）
+          - 风控指纹：spmid（视频页固定 spmid 333.1007.0.1）、dm_img_str/dm_cover_img_str（与 nav 一致）
+          - 请求头：Origin（_request 已自动补）、Referer=视频页
+        """
+        aid: int = await self.bvid_to_aid(bvid)
+        data: dict[str, Any] = {
+            "bvid": bvid,
+            "aid": aid,
+            "share_channel": "copy",
+            "spmid": "333.1007.0.1",
+            "from_spmid": "333.337.0.0",
+            "dm_img_list": "[]",
+            # 1x1 透明 png 的 base64，模拟浏览器 canvas 指纹（与 nav 一致）
+            "dm_img_str": (
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+            ),
+            "dm_cover_img_str": (
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNgYAAAAAMAASsB0HwAAAAASUVORK5CYII="
+            ),
+            "csrf": self.csrf,
+        }
         payload = await self._request(
             "POST", "x/web-interface/share/add",
             data=data, need_csrf=True,
             extra_headers={"Referer": f"https://www.bilibili.com/video/{bvid}"},
         )
-        return payload.get("data", {})
+        return {"aid": aid, **(payload.get("data", {}) or {})}
 
     # ====== 签到 / 兑换 ======
 

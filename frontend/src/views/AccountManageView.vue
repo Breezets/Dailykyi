@@ -2,16 +2,17 @@
 import { ref, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { RefreshRight, Delete } from "@element-plus/icons-vue";
+import { RefreshRight, Delete, Aim } from "@element-plus/icons-vue";
 import KyiCard from "@/components/KyiCard.vue";
 import KyiQrModal from "@/components/KyiQrModal.vue";
-import { getAccounts, deleteAccount, refreshCookie } from "@/api/account";
+import { getAccounts, deleteAccount, refreshCookie, checkCookies } from "@/api/account";
 import type { Account } from "@/types";
 
 const router = useRouter();
 
 const accounts = ref<Account[]>([]);
 const loading = ref(false);
+const checkingCookies = ref(false);
 const qrVisible = ref(false);
 
 async function fetchAccounts(): Promise<void> {
@@ -26,6 +27,35 @@ async function fetchAccounts(): Promise<void> {
 }
 
 onMounted(fetchAccounts);
+
+/** Cookie 状态展示（0.2.0） */
+function cookieStatusMeta(account: Account): { text: string; cls: string } {
+  switch (account.cookie_status) {
+    case "ok":
+      return { text: "Cookie 正常", cls: "cookie-ok" };
+    case "expired":
+      return { text: "Cookie 已失效", cls: "cookie-expired" };
+    case "missing":
+      return { text: "未绑定", cls: "cookie-missing" };
+    default:
+      return { text: "待检测", cls: "cookie-unknown" };
+  }
+}
+
+async function handleCheckCookies(): Promise<void> {
+  checkingCookies.value = true;
+  try {
+    const res = await checkCookies();
+    const parts = [`检测 ${res.checked} 个账号`, `正常 ${res.ok}`, `失效 ${res.expired}`];
+    if (res.warned_expiring > 0) parts.push(`临期预警 ${res.warned_expiring}`);
+    ElMessage.success(parts.join(" · "));
+    await fetchAccounts();
+  } catch {
+    // 错误已由 request 拦截器提示
+  } finally {
+    checkingCookies.value = false;
+  }
+}
 
 function avatarText(account: Account): string {
   return account.username ? account.username.charAt(0).toUpperCase() : "?";
@@ -76,9 +106,14 @@ function onQrConfirmed(): void {
   <div class="account-manage">
     <div class="page-header">
       <h2 class="page-title">账号管理</h2>
-      <el-button type="primary" :color="'var(--kyi-primary)'" @click="qrVisible = true">
-        + 添加账号
-      </el-button>
+      <div class="page-actions">
+        <el-button :icon="Aim" :loading="checkingCookies" @click="handleCheckCookies">
+          {{ checkingCookies ? "检测中..." : "检测 Cookie" }}
+        </el-button>
+        <el-button type="primary" :color="'var(--kyi-primary)'" @click="qrVisible = true">
+          + 添加账号
+        </el-button>
+      </div>
     </div>
 
     <div v-if="!loading && accounts.length === 0" class="empty-state">
@@ -98,7 +133,12 @@ function onQrConfirmed(): void {
           </div>
 
           <div class="account-card__center">
-            <div class="account-name">{{ account.username || "未命名" }}</div>
+            <div class="account-name">
+              {{ account.username || "未命名" }}
+              <span class="cookie-tag" :class="cookieStatusMeta(account).cls">
+                {{ cookieStatusMeta(account).text }}
+              </span>
+            </div>
             <div class="account-meta">
               <span class="meta-item">UID: {{ account.uid }}</span>
               <span class="meta-item">Lv{{ account.level }}</span>
@@ -154,6 +194,12 @@ function onQrConfirmed(): void {
   justify-content: space-between;
 }
 
+.page-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .page-title {
   margin: 0;
   font-size: 20px;
@@ -189,6 +235,40 @@ function onQrConfirmed(): void {
   font-size: 16px;
   font-weight: 600;
   color: var(--kyi-text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Cookie 状态标签（0.2.0） */
+.cookie-tag {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 20px;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+.cookie-ok {
+  color: #1f9d55;
+  background: rgba(31, 157, 85, 0.12);
+  border: 1px solid rgba(31, 157, 85, 0.35);
+}
+.cookie-expired {
+  color: #e74c3c;
+  background: rgba(231, 76, 60, 0.12);
+  border: 1px solid rgba(231, 76, 60, 0.35);
+}
+.cookie-missing {
+  color: var(--kyi-text-secondary);
+  background: rgba(128, 128, 128, 0.1);
+  border: 1px solid rgba(128, 128, 128, 0.25);
+}
+.cookie-unknown {
+  color: #b8860b;
+  background: rgba(184, 134, 11, 0.12);
+  border: 1px solid rgba(184, 134, 11, 0.35);
 }
 
 .account-meta {

@@ -9,6 +9,7 @@ export interface Account {
   next_level_exp: number;
   coins: number;
   cookie_status?: string;
+  cookie_checked_at?: string | null;
   is_active: boolean;
   today_exp_gained: number;
 }

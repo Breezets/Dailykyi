@@ -102,6 +102,36 @@ const statusColor: Record<string, string> = {
         </div>
       </el-card>
 
+      <!-- LV6 预估 -->
+      <el-card class="section-card lv6-card" shadow="never">
+        <template #header>
+          <span class="section-title">到达 LV6 预估</span>
+        </template>
+        <div v-if="!data?.accounts.length" class="empty-text">还没有账号</div>
+        <div v-else class="lv6-list">
+          <div v-for="acc in data.accounts" :key="acc.uid" class="lv6-row">
+            <div class="lv6-name">{{ acc.username || `UID:${acc.uid}` }}</div>
+            <div v-if="acc.lv6_estimate?.already_reached" class="lv6-reached">
+              已达 LV{{ acc.lv6_estimate.current_level }} ✨
+            </div>
+            <div v-else-if="acc.lv6_estimate" class="lv6-detail">
+              <div class="lv6-progress-text">
+                还差 <strong>{{ acc.lv6_estimate.exp_remaining }}</strong> 经验
+                ({{ acc.lv6_estimate.current_exp }}/{{ acc.lv6_estimate.lv6_threshold }})
+              </div>
+              <div v-if="acc.lv6_estimate.avg_daily_exp > 0" class="lv6-eta">
+                按日均 <strong>{{ acc.lv6_estimate.avg_daily_exp }}</strong> exp 算：
+                <strong>{{ acc.lv6_estimate.est_days_to_lv6 }}</strong> 天后
+                <span class="lv6-date">({{ acc.lv6_estimate.est_date }})</span>
+              </div>
+              <div v-else class="lv6-no-data">
+                数据不足：需积累 2 次以上经验快照（每 6h 一次，需等待 ≥6h）
+              </div>
+            </div>
+          </div>
+        </div>
+      </el-card>
+
       <!-- 今日任务统计 -->
       <el-card class="section-card" shadow="never">
         <template #header><span class="section-title">今日任务</span></template>
@@ -322,6 +352,65 @@ const statusColor: Record<string, string> = {
   font-size: 14px;
   font-weight: 600;
   color: var(--kyi-success);
+}
+
+/* LV6 预估卡片 */
+.lv6-card {
+  background: linear-gradient(135deg, rgba(251, 114, 153, 0.04), rgba(35, 173, 229, 0.04));
+}
+
+.lv6-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.lv6-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--kyi-card-bg, rgba(255, 255, 255, 0.5));
+  border: 1px solid var(--kyi-border, #ebeef5);
+}
+
+.lv6-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--kyi-text);
+}
+
+.lv6-reached {
+  font-size: 13px;
+  color: var(--kyi-secondary);
+  font-weight: 600;
+}
+
+.lv6-detail {
+  font-size: 13px;
+  color: var(--kyi-text-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lv6-progress-text strong,
+.lv6-eta strong {
+  color: var(--kyi-primary);
+  font-size: 14px;
+}
+
+.lv6-date {
+  color: var(--kyi-text-secondary);
+  font-size: 12px;
+  margin-left: 4px;
+}
+
+.lv6-no-data {
+  color: var(--kyi-text-secondary);
+  font-size: 12px;
+  font-style: italic;
 }
 
 .task-stats {

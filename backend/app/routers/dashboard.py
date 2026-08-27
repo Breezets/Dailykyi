@@ -19,6 +19,7 @@ from app.schemas.task import (
     DashboardStats,
     DashboardUpcoming,
 )
+from app.services.exp_service import compute_lv6_estimate, compute_today_exp_gain
 from app.services.scheduler import scheduler
 
 router = APIRouter()
@@ -43,15 +44,10 @@ async def get_dashboard(
 
     accounts: list[DashboardAccount] = []
     for acc in accounts_orm:
-        # 当日 exp 汇总
-        log_result = await db.execute(
-            select(TaskLog).where(
-                TaskLog.account_uid == acc.uid,
-                TaskLog.created_at >= today_start,
-            )
-        )
-        today_logs = list(log_result.scalars().all())
-        today_exp = sum(int(l.exp_gained or 0) for l in today_logs)
+        # 当日经验增量（用 ExpSnapshot 快照对比，fallback 到 TaskLog 汇总）
+        today_exp = await compute_today_exp_gain(db, acc)
+        # LV6 预估（基于最近 7 天快照日均经验）
+        lv6_est = await compute_lv6_estimate(db, acc, today_exp)
 
         accounts.append(
             DashboardAccount(
@@ -63,6 +59,7 @@ async def get_dashboard(
                 next_level_exp=acc.next_level_exp,
                 coins=acc.coins,
                 today_exp_gained=today_exp,
+                lv6_estimate=lv6_est,
             )
         )
 

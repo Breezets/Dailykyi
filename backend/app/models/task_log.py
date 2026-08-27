@@ -9,6 +9,15 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
 
+def _localnow() -> datetime:
+    """本地时区当前时间（用户在 Asia/Hong_Kong UTC+8）。
+
+    SQLite 的 func.now() 返回 UTC 时间导致日志显示晚 8 小时，
+    Python 层显式传本地时间可绕过此问题。
+    """
+    return datetime.now()
+
+
 class TaskLog(Base):
     """单次任务执行记录。"""
 
@@ -31,7 +40,7 @@ class TaskLog(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), nullable=False, index=True
+        DateTime, default=_localnow, server_default=func.now(), nullable=False, index=True
     )
 
     account = relationship("Account", back_populates="task_logs")

@@ -16,6 +16,7 @@ from typing import Any
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 from loguru import logger
 from sqlalchemy import select
 
@@ -42,6 +43,9 @@ class TaskScheduler:
         self.jobs: dict[str, Any] = {}
         # 连续失败计数：{(uid, task_type): count}
         self._failure_counts: dict[tuple[int, str], int] = {}
+        # 每日汇总已发送缓存：{"daily_summary_sent:{uid}:{date}", ...}
+        # 进程重启会丢失，但 send_daily_summary 本身是幂等的（重发一次无害）
+        self._summary_sent_cache: set[str] = set()
 
     # ====== 调度加载 ======
 
@@ -249,7 +253,7 @@ class TaskScheduler:
                 message="",
                 detail={},
                 exp_gained=0,
-                started_at=datetime.utcnow(),
+                started_at=datetime.now(),
             )
             db.add(log)
             await db.commit()
@@ -330,7 +334,7 @@ class TaskScheduler:
                 log.message = result.message
                 log.detail = result.detail
                 log.exp_gained = result.exp_gained
-                log.completed_at = datetime.utcnow()
+                log.completed_at = datetime.now()
                 await db.commit()
                 self._failure_counts[(uid, task_type)] = 0
                 logger.info(
@@ -349,7 +353,7 @@ class TaskScheduler:
                 log.message = result.message
                 log.detail = result.detail
                 log.exp_gained = result.exp_gained
-                log.completed_at = datetime.utcnow()
+                log.completed_at = datetime.now()
                 await db.commit()
                 logger.info(
                     f"任务跳过 uid={uid} type={task_type}: {result.message}"
@@ -374,6 +378,113 @@ class TaskScheduler:
                 except Exception:  # noqa: BLE001
                     pass
 
+            # 0.2.0：任务完成后重置 6h 经验快照定时器（主动+被动机制）
+            # 主动：任务执行时调 refresh_exp_snapshot 已写一条快照
+            # 被动：把下一次自动快照的执行时间重置为 now + 6h
+            # 这样既不会因为任务执行跳过 6h 间隔，又能在没任务时段定期记录
+            self._reset_exp_snapshot_timer()
+
+            # 0.2.0：尝试触发"每日汇总通知"——只在用户启用的所有任务都执行完毕后才发
+            await self._try_send_daily_summary(db, uid)
+
+    def _reset_exp_snapshot_timer(self) -> None:
+        """重置 6h 经验快照定时器的下次执行时间为 now + 6h。
+
+        形成"主动+被动"经验记录机制：
+          - 主动：任务执行时调 refresh_exp_snapshot 立即写一条快照
+          - 被动：定时器每 6h 自动写一次（无任务时段也能记录经验变化）
+          - 重置：任务执行后把定时器推迟到 now+6h，避免刚主动记录完立即又被动记录
+        """
+        try:
+            # 直接修改 next_run_time，IntervalTrigger 会基于新时间重新计算后续触发
+            self.scheduler.modify_job(
+                job_id="exp-snapshot",
+                next_run_time=datetime.now() + timedelta(hours=6),
+            )
+            logger.debug("已重置 exp-snapshot 定时器：next_run_time = now + 6h")
+        except Exception as exc:  # noqa: BLE001
+            # 任务不存在或调度器未启动时静默失败
+            logger.debug(f"重置 exp-snapshot 定时器失败（可忽略）: {exc}")
+
+    async def _try_send_daily_summary(self, db, uid: int) -> None:
+        """检查该账号今日启用的所有任务是否都已执行完毕，是则触发每日汇总通知。
+
+        判定逻辑：
+          - 启用任务 = TaskConfig.enabled=True 且不在 DISABLED_TASK_TYPES
+          - 已执行任务 = 今日 TaskLog 中该账号出现过的 task_type 集合
+          - 当"已执行集合 ⊇ 启用集合"时，触发汇总（一次/天/账号）
+        去重机制：今日已发过汇总则跳过（通过查询当日已有 success summary 日志判断）。
+        """
+        from app.models.account import Account
+
+        # 1. 查今日启用的所有任务类型
+        enabled_result = await db.execute(
+            select(TaskConfig).where(
+                TaskConfig.account_uid == uid,
+                TaskConfig.enabled == True,  # noqa: E712
+            )
+        )
+        enabled_types = {
+            c.task_type
+            for c in enabled_result.scalars().all()
+            if c.task_type not in self.DISABLED_TASK_TYPES
+        }
+
+        if not enabled_types:
+            return  # 没启用任何任务，不触发
+
+        # 2. 查今日已执行的任务类型集合（按 task_type 去重）
+        today_start = datetime.now().replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        log_result = await db.execute(
+            select(TaskLog.task_type).where(
+                TaskLog.account_uid == uid,
+                TaskLog.created_at >= today_start,
+            ).distinct()
+        )
+        executed_types = {row[0] for row in log_result.fetchall()}
+
+        # 3. 未执行完所有启用任务 → 跳过
+        if not enabled_types.issubset(executed_types):
+            logger.debug(
+                f"汇总检查 uid={uid}: 启用={enabled_types} 已执行={executed_types}，"
+                f"未完成不发汇总"
+            )
+            return
+
+        # 4. 今日已发过汇总则跳过（去重）
+        # 简单去重：检查今日是否已有一条 status=success 的 share 日志（替代方案：
+        # 用 SystemConfig 存最后发送时间。这里复用 task_logs 表添加一条特殊日志）
+        # 为避免污染 task_logs，改为内存缓存的方式：
+        cache_key = f"daily_summary_sent:{uid}:{datetime.now().strftime('%Y-%m-%d')}"
+        if cache_key in self._summary_sent_cache:
+            return
+        self._summary_sent_cache.add(cache_key)
+
+        # 5. 查当日所有日志 + 账号，调用 send_daily_summary
+        try:
+            acc_result = await db.execute(
+                select(Account).where(Account.uid == uid)
+            )
+            account = acc_result.scalar_one_or_none()
+            if account is None:
+                return
+
+            logs_result = await db.execute(
+                select(TaskLog).where(
+                    TaskLog.account_uid == uid,
+                    TaskLog.created_at >= today_start,
+                ).order_by(TaskLog.created_at.asc())
+            )
+            today_logs = list(logs_result.scalars().all())
+
+            notify = NotifyService(db)
+            await notify.send_daily_summary(account, today_logs)
+            logger.info(f"已触发 uid={uid} 的每日汇总通知")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"每日汇总触发失败 uid={uid}: {exc}")
+
     async def _mark_failed(
         self,
         db,
@@ -386,7 +497,7 @@ class TaskScheduler:
         """标记任务失败并触发熔断检查。"""
         log.status = "failed"
         log.message = message
-        log.completed_at = datetime.utcnow()
+        log.completed_at = datetime.now()
         await db.commit()
 
         key = (uid, task_type)
@@ -471,10 +582,67 @@ class TaskScheduler:
 scheduler: TaskScheduler = TaskScheduler()
 
 
+async def _cookie_check_job() -> None:
+    """系统级任务：每 6 小时检测所有账号 cookie 有效性（0.2.0）。"""
+    async with AsyncSessionLocal() as db:
+        try:
+            from app.services.cookie_checker import check_all_accounts
+
+            await check_all_accounts(db)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"Cookie 检测任务异常: {exc}")
+
+
+async def _exp_snapshot_job() -> None:
+    """系统级任务：每 6 小时为所有账号记录一次经验快照（0.2.0）。
+
+    目的：用快照前后对比精确计算"今日经验增量"，替代 TaskLog.exp_gained 汇总
+    （后者依赖任务上报数值，曾因 bug 误报 +5）。
+    实现策略：直接读 accounts 表的 current_exp 缓存字段，不调用 B 站 API，
+    避免触发风控；快照频率足够（24h 内 4 个点）。
+    """
+    from app.models.exp_snapshot import ExpSnapshot
+
+    async with AsyncSessionLocal() as db:
+        try:
+            result = await db.execute(select(Account))
+            accounts = list(result.scalars().all())
+            now = datetime.now()
+            for acc in accounts:
+                snapshot = ExpSnapshot(
+                    account_uid=acc.uid,
+                    exp=int(acc.current_exp or 0),
+                    level=int(acc.level or 0),
+                    coins=int(acc.coins or 0),
+                    recorded_at=now,
+                )
+                db.add(snapshot)
+            await db.commit()
+            logger.info(f"经验快照任务完成，记录 {len(accounts)} 个账号")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"经验快照任务异常: {exc}")
+
+
 async def init_scheduler() -> None:
     """初始化调度器：加载任务并启动。供 main.py lifespan 调用。"""
     async with AsyncSessionLocal() as db:
         await scheduler.load_jobs(db)
+    # 系统级任务：Cookie 有效性检测（每 6 小时，首次延迟 2 分钟）
+    scheduler.scheduler.add_job(
+        _cookie_check_job,
+        trigger=IntervalTrigger(hours=6),
+        id="cookie-checker",
+        next_run_time=datetime.now() + timedelta(minutes=2),
+        replace_existing=True,
+    )
+    # 系统级任务：经验快照（每 6 小时，首次延迟 5 分钟，避开 cookie-checker）
+    scheduler.scheduler.add_job(
+        _exp_snapshot_job,
+        trigger=IntervalTrigger(hours=6),
+        id="exp-snapshot",
+        next_run_time=datetime.now() + timedelta(minutes=5),
+        replace_existing=True,
+    )
     scheduler.start()
 
 

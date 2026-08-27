@@ -68,6 +68,7 @@ class DashboardAccount(BaseModel):
     next_level_exp: int = 0
     coins: int = 0
     today_exp_gained: int = 0
+    lv6_estimate: dict[str, Any] | None = None
 
 
 class DashboardStats(BaseModel):

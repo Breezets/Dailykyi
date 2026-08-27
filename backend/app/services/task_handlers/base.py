@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from datetime import datetime
 from typing import Any
 
 from loguru import logger
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.exceptions import BiliAPIException
@@ -53,7 +55,18 @@ class BaseTaskHandler(ABC):
             logger.warning(f"pre_check 失败 uid={self.account.uid}: {exc}")
             return False
 
-        # 更新账号缓存字段
+        self._apply_nav_info(info)
+        await self.db.commit()
+        logger.debug(
+            f"pre_check ok uid={self.account.uid} "
+            f"name={self.account.username} level={self.account.level}"
+        )
+        return True
+
+    def _apply_nav_info(self, info: dict[str, Any]) -> None:
+        """把 nav/get_user_info 返回值写入 account 缓存字段。"""
+        from app.models.account import Account  # noqa: F401
+
         self.account.username = info.get("uname") or self.account.username
         self.account.avatar_url = info.get("face") or self.account.avatar_url
 
@@ -71,12 +84,66 @@ class BaseTaskHandler(ABC):
         self.account.current_exp = _safe_int(level_info.get("current_exp", 0))
         self.account.next_level_exp = _safe_int(level_info.get("next_exp", 0))
 
-        await self.db.commit()
-        logger.debug(
-            f"pre_check ok uid={self.account.uid} "
-            f"name={self.account.username} level={self.account.level}"
+    async def refresh_exp_snapshot(self) -> int:
+        """任务执行完成后调用：刷新 account.current_exp 并写一条 ExpSnapshot。
+
+        返回值：与最近一条 ExpSnapshot 的 exp 差值（delta）。
+          - delta > 0：本次执行真的获得了经验
+          - delta = 0：本次没获得经验（可能别处已完成，B 站服务端去重）
+          - delta < 0：异常情况（经验被减少），按 0 处理
+
+        实现逻辑：
+          1. 调 nav 接口拿最新 current_exp（绕过任务缓存的过期值）
+          2. 查最近一条 ExpSnapshot 的 exp
+          3. 写一条新 ExpSnapshot
+          4. 计算 delta 返回
+        """
+        from app.models.exp_snapshot import ExpSnapshot
+
+        if self.client is None:
+            await self.init_client()
+        assert self.client is not None
+
+        # 1. 调 nav 接口刷新 account.current_exp
+        try:
+            info = await self.client.get_user_info()
+            self._apply_nav_info(info)
+        except BiliAPIException as exc:
+            logger.warning(
+                f"refresh_exp_snapshot 调 nav 失败 uid={self.account.uid}: {exc}"
+            )
+            return 0
+
+        # 2. 查最近一条快照
+        from sqlalchemy import select
+        last_snap_result = await self.db.execute(
+            select(ExpSnapshot)
+            .where(ExpSnapshot.account_uid == self.account.uid)
+            .order_by(ExpSnapshot.recorded_at.desc())
+            .limit(1)
         )
-        return True
+        last_snap = last_snap_result.scalar_one_or_none()
+        last_exp = int(last_snap.exp) if last_snap else 0
+
+        # 3. 写新快照
+        new_exp = int(self.account.current_exp or 0)
+        snap = ExpSnapshot(
+            account_uid=self.account.uid,
+            exp=new_exp,
+            level=int(self.account.level or 0),
+            coins=int(self.account.coins or 0),
+            recorded_at=datetime.now(),
+        )
+        self.db.add(snap)
+        await self.db.commit()
+
+        # 4. 计算 delta
+        delta = max(0, new_exp - last_exp)
+        logger.info(
+            f"refresh_exp_snapshot uid={self.account.uid} "
+            f"last={last_exp} new={new_exp} delta={delta}"
+        )
+        return delta
 
     @abstractmethod
     async def execute(self, config: dict[str, Any]) -> TaskResult:

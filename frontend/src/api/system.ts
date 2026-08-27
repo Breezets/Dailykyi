@@ -20,3 +20,33 @@ export async function updateSystemConfig(config: Record<string, unknown>): Promi
 export async function testFailureNotification(): Promise<TestFailureResult> {
   return request.post<unknown, TestFailureResult>("/system/notify/test-failure");
 }
+
+// ====== 版本升级（0.2.0） ======
+
+export interface UpgradeCheckResult {
+  has_update: boolean;
+  current: string;
+  latest: string | null;
+  release_url: string | null;
+  notes: string | null;
+  error: string | null;
+  /** 客户端缓存时间戳（非后端返回） */
+  __ts?: number;
+}
+
+export interface UpgradeExecuteResult {
+  started: boolean;
+  log_file?: string;
+  message?: string;
+  error?: string;
+}
+
+/** 检查 GitHub 是否有新版本 */
+export async function checkUpgrade(): Promise<UpgradeCheckResult> {
+  return request.get<unknown, UpgradeCheckResult>("/system/upgrade/check");
+}
+
+/** 一键升级（后台执行 update.sh） */
+export async function runUpgrade(): Promise<UpgradeExecuteResult> {
+  return request.post<unknown, UpgradeExecuteResult>("/system/upgrade/execute");
+}

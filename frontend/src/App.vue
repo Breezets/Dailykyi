@@ -223,6 +223,12 @@ provide("closeMobileSidebar", closeMobileSidebar);
 
 /* ============ 手机端 ============ */
 @media (max-width: 768px) {
+  .kyi-layout__header {
+    left: 0 !important;
+  }
+  .kyi-layout__body {
+    margin-left: 0 !important;
+  }
   .kyi-layout__main {
     padding: 14px 12px;
   }

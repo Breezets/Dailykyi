@@ -1,13 +1,17 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from "vue";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
+import request from "@/api/request";
 import { useThemeStore } from "@/stores/theme";
 import { useAuthStore } from "@/stores/auth";
 import {
   getSystemConfig,
   updateSystemConfig,
   testFailureNotification,
+  checkUpgrade,
+  runUpgrade,
   type TestFailureResult,
+  type UpgradeCheckResult,
 } from "@/api/system";
 import KyiCard from "@/components/KyiCard.vue";
 
@@ -43,11 +47,71 @@ const passwordForm = reactive({
 const testingFail = ref(false);
 const failTestResult = ref<TestFailureResult | null>(null);
 
+// 版本升级（0.2.0）
+const currentVersion = ref("");
+const checkingUpgrade = ref(false);
+const upgrading = ref(false);
+const upgradeResult = ref<UpgradeCheckResult | null>(null);
+
 const savingNotify = ref(false);
 const savingRisk = ref(false);
 const changingPassword = ref(false);
 
-onMounted(loadAll);
+onMounted(() => {
+  loadAll();
+  checkVersion();
+});
+
+/** 获取当前版本（/ 根接口） */
+async function checkVersion(): Promise<void> {
+  try {
+    const res = await request.get<unknown, { version?: string }>("/");
+    currentVersion.value = res.version || "";
+  } catch {
+    // 忽略
+  }
+}
+
+/** 检查更新 */
+async function onCheckUpgrade(): Promise<void> {
+  checkingUpgrade.value = true;
+  upgradeResult.value = null;
+  try {
+    upgradeResult.value = await checkUpgrade();
+  } catch (e) {
+    const msg = (e as { message?: string })?.message || "";
+    ElMessage.error(`检查更新失败：${msg || "请查看后端日志"}`);
+  } finally {
+    checkingUpgrade.value = false;
+  }
+}
+
+/** 一键升级 */
+async function onRunUpgrade(): Promise<void> {
+  try {
+    await ElMessageBox.confirm(
+      "升级将执行：git pull → 重新构建前端 → 重建并重启容器。\n期间面板会短暂不可用，确认继续？",
+      "一键升级",
+      { type: "warning", confirmButtonText: "开始升级", cancelButtonText: "取消" }
+    );
+  } catch {
+    return; // 用户取消
+  }
+  upgrading.value = true;
+  try {
+    const res = await runUpgrade();
+    if (res.started) {
+      ElMessage.success(res.message || "升级已在后台执行，请稍后刷新页面");
+    } else {
+      ElMessage.error(res.error || "升级未启动");
+    }
+  } catch (e) {
+    const msg = (e as { message?: string })?.message || "";
+    ElMessage.error(`升级失败：${msg || "请查看后端日志"}`);
+  } finally {
+    upgrading.value = false;
+  }
+}
 
 async function loadAll(): Promise<void> {
   try {
@@ -287,6 +351,78 @@ async function runTestFail(): Promise<void> {
         </el-form>
       </KyiCard>
 
+      <!-- 版本与升级（0.2.0） -->
+      <KyiCard title="版本与升级" icon="🚀" color="#23ADE5" class="debug-card version-card">
+        <div class="version-banner">
+          <div class="version-banner__mascots">
+            <img src="/mascots/down/1.png" alt="22 & 33" class="version-banner__mascot-img" />
+          </div>
+          <div class="version-banner__text">
+            <div class="version-banner__ver">v{{ currentVersion || "?" }}</div>
+            <div class="version-banner__sub">22 &amp; 33 持续守护中</div>
+          </div>
+        </div>
+
+        <div class="debug-section">
+          <div class="debug-head">
+            <div>
+              <div class="debug-title">检查 GitHub 上的新版本</div>
+              <div class="form-tip">
+                仓库 breezets/Dailykyi。检查失败时（如网络不通）会静默降级，不影响使用。
+              </div>
+            </div>
+            <el-button
+              type="primary"
+              plain
+              :loading="checkingUpgrade"
+              @click="onCheckUpgrade"
+            >
+              {{ checkingUpgrade ? "检查中..." : "检查更新" }}
+            </el-button>
+          </div>
+
+          <div v-if="upgradeResult" class="debug-result">
+            <div class="debug-result-row">
+              <span>当前版本：</span>
+              <span class="ver-current">v{{ upgradeResult.current }}</span>
+            </div>
+            <div class="debug-result-row">
+              <span>最新版本：</span>
+              <span v-if="upgradeResult.latest" class="ver-latest">v{{ upgradeResult.latest }}</span>
+              <span v-else>—</span>
+            </div>
+            <div v-if="upgradeResult.error" class="debug-result-log">
+              {{ upgradeResult.error }}
+            </div>
+            <template v-else-if="upgradeResult.has_update">
+              <div class="debug-result-log version-notes">
+                <div class="version-notes__title">本次更新内容</div>
+                <div class="version-notes__body">{{ upgradeResult.notes || "（无更新说明）" }}</div>
+              </div>
+              <div class="upgrade-actions">
+                <el-button
+                  class="upgrade-btn"
+                  :loading="upgrading"
+                  @click="onRunUpgrade"
+                >
+                  {{ upgrading ? "升级中..." : "一键升级到最新版本" }}
+                </el-button>
+                <a
+                  v-if="upgradeResult.release_url"
+                  :href="upgradeResult.release_url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="upgrade-link"
+                >在 GitHub 查看发布页 →</a>
+              </div>
+            </template>
+            <div v-else class="debug-result-log version-uptodate">
+              <span class="uptodate-icon">✨</span> 当前已是最新版本，22 &amp; 33 都放心啦
+            </div>
+          </div>
+        </div>
+      </KyiCard>
+
       <!-- 调试与诊断（Debug） -->
       <KyiCard title="调试与诊断" icon="🧪" color="#8C52FF" class="debug-card">
         <div class="debug-section">
@@ -349,6 +485,110 @@ async function runTestFail(): Promise<void> {
 /* Debug card 占两列 */
 .debug-card {
   grid-column: 1 / -1;
+}
+
+/* 版本与升级卡片：2233 主题美化 */
+.version-card {
+  background: linear-gradient(180deg, rgba(251, 114, 153, 0.04), rgba(35, 173, 229, 0.04));
+}
+
+.version-banner {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 20px 22px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(251, 114, 153, 0.12), rgba(35, 173, 229, 0.12));
+  border: 1px solid rgba(251, 114, 153, 0.18);
+  margin-bottom: 18px;
+}
+
+.version-banner__mascots {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.version-banner__mascot-img {
+  width: 64px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(251, 114, 153, 0.25), 0 2px 6px rgba(35, 173, 229, 0.18);
+}
+
+.version-banner__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.version-banner__ver {
+  font-size: 22px;
+  font-weight: 700;
+  background: linear-gradient(90deg, #FB7299, #23ADE5);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  line-height: 1.2;
+}
+
+.version-banner__sub {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--kyi-text-secondary);
+}
+
+.ver-current {
+  color: var(--kyi-text);
+  font-weight: 600;
+}
+
+.ver-latest {
+  color: var(--kyi-secondary);
+  font-weight: 700;
+}
+
+.version-notes {
+  background: linear-gradient(135deg, rgba(251, 114, 153, 0.06), rgba(35, 173, 229, 0.06));
+  border: 1px solid rgba(251, 114, 153, 0.15);
+}
+
+.version-notes__title {
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: var(--kyi-text);
+  font-size: 13px;
+}
+
+.version-notes__body {
+  white-space: pre-wrap;
+  font-size: 13px;
+  color: var(--kyi-text-secondary);
+  line-height: 1.6;
+}
+
+.upgrade-btn {
+  background: linear-gradient(135deg, #FB7299, #23ADE5) !important;
+  border: none !important;
+  color: #fff !important;
+  font-weight: 600;
+  box-shadow: 0 4px 14px rgba(251, 114, 153, 0.25);
+}
+
+.upgrade-btn:hover {
+  opacity: 0.92;
+  box-shadow: 0 6px 18px rgba(35, 173, 229, 0.35);
+}
+
+.version-uptodate {
+  text-align: center;
+  color: var(--kyi-success);
+  font-weight: 600;
+  padding: 12px;
+}
+
+.uptodate-icon {
+  margin-right: 4px;
 }
 
 .checkbox-list {
@@ -444,6 +684,22 @@ async function runTestFail(): Promise<void> {
   font-size: 12.5px;
   color: var(--kyi-text);
   line-height: 1.7;
+}
+
+.upgrade-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+.upgrade-link {
+  font-size: 13px;
+  color: var(--kyi-primary);
+  text-decoration: none;
+}
+.upgrade-link:hover {
+  text-decoration: underline;
 }
 
 /* ============ 响应式：平板 ============ */

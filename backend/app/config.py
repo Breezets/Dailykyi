@@ -27,7 +27,7 @@ class Settings(BaseSettings):
 
     # 应用
     APP_NAME: str = "Dailykyi"
-    APP_VERSION: str = "0.1.0"
+    APP_VERSION: str = "0.2.0"
     DEBUG: bool = False
 
     # 安全

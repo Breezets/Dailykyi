@@ -30,6 +30,6 @@ export const SITE: SiteLinks = {
   authorName: "微风的铃声",
   copyright: "© 2026 微风的铃声. All rights reserved.",
   license: "MIT License",
-  version: "0.1.1",
+  version: "0.2.0",
   slogan: "每日姬 · B 站日常助手",
 };

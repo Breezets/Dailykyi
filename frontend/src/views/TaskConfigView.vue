@@ -45,7 +45,7 @@ const coinSchedule = reactive({
 
 // 其他任务简单表单
 const taskSimple = reactive<Record<string, { enabled: boolean; duration_seconds: number; source: string }>>({
-  watch: { enabled: true, duration_seconds: 30, source: "recommend" },
+  watch: { enabled: true, duration_seconds: 310, source: "recommend" },
   share: { enabled: true, duration_seconds: 30, source: "recommend" },
   live_sign: { enabled: false, duration_seconds: 30, source: "recommend" },
   silver2coin: { enabled: false, duration_seconds: 30, source: "recommend" },
@@ -162,7 +162,7 @@ function applyConfigsToForms(): void {
     const config = (cfg?.config || {}) as Record<string, unknown>;
     taskSimple[type] = {
       enabled: cfg?.enabled ?? true,
-      duration_seconds: (config.duration_seconds as number) ?? 30,
+      duration_seconds: (config.duration_seconds as number) ?? (type === "watch" ? 310 : 30),
       source: (config.source as string) || "recommend",
     };
     // 观看/分享有调度配置
@@ -556,10 +556,11 @@ function notifyDeveloping(): void {
               </el-form-item>
               <el-form-item label="观看时长">
                 <el-radio-group v-model="taskSimple.watch.duration_seconds">
-                  <el-radio-button :label="30">30 秒</el-radio-button>
-                  <el-radio-button :label="60">60 秒</el-radio-button>
-                  <el-radio-button :label="120">120 秒</el-radio-button>
+                  <el-radio-button :label="300">300 秒（5 分钟·保底）</el-radio-button>
+                  <el-radio-button :label="310">310 秒（推荐）</el-radio-button>
+                  <el-radio-button :label="350">350 秒（保守）</el-radio-button>
                 </el-radio-group>
+                <div class="form-tip">B 站规则：连续观看视频累计 ≥ 300 秒才能拿 +5 经验，时长不够拿不到</div>
               </el-form-item>
               <el-form-item label="调度方式">
                 <el-radio-group v-model="simpleSchedule.watch.schedule_mode">

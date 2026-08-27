@@ -40,6 +40,40 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             await session.close()
 
 
+async def _ensure_account_columns() -> None:
+    """轻量迁移：为已存在的 accounts 表补充 0.2.0 新增字段（不破坏已有数据）。
+
+    针对 SQLite：用 PRAGMA table_info 检查列是否存在，缺失则 ALTER TABLE 补列。
+    """
+    from sqlalchemy import text
+
+    async with engine.connect() as conn:
+        table_exists = await conn.scalar(
+            text(
+                "SELECT name FROM sqlite_master "
+                "WHERE type='table' AND name='accounts'"
+            )
+        )
+        if not table_exists:
+            return
+
+        cols = await conn.execute(text("PRAGMA table_info(accounts)"))
+        existing = {row[1] for row in cols.fetchall()}
+
+        if "cookie_status" not in existing:
+            await conn.execute(
+                text(
+                    "ALTER TABLE accounts ADD COLUMN "
+                    "cookie_status VARCHAR(16) NOT NULL DEFAULT 'unknown'"
+                )
+            )
+        if "cookie_checked_at" not in existing:
+            await conn.execute(
+                text("ALTER TABLE accounts ADD COLUMN cookie_checked_at DATETIME")
+            )
+        await conn.commit()
+
+
 async def init_db() -> None:
     """开发期建表；生产应使用 Alembic 迁移。"""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -47,3 +81,5 @@ async def init_db() -> None:
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    # 兼容旧库：补 0.2.0 新增列
+    await _ensure_account_columns()

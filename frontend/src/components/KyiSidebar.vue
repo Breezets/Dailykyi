@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted } from "vue";
+import { computed, ref, onMounted, onUnmounted, inject } from "vue";
 import { useRoute } from "vue-router";
 import {
   House,
@@ -13,6 +13,13 @@ import { SITE } from "@/constants/site";
 import { getAllSidebarMascots } from "@/utils/mascot";
 
 const route = useRoute();
+
+// 手机端：点击菜单项后自动关闭侧边栏
+const closeMobileSidebar = inject<() => void>("closeMobileSidebar", () => {});
+
+function onMenuNavigate(): void {
+  closeMobileSidebar();
+}
 
 interface MenuItem {
   index: string;
@@ -97,6 +104,7 @@ onUnmounted(() => {
         :to="item.index"
         class="menu-item"
         :class="{ 'menu-item--active': activeIndex === item.index }"
+        @click="onMenuNavigate"
       >
         <el-icon class="menu-item__icon">
           <component :is="item.icon" />

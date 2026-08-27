@@ -262,15 +262,42 @@ class CoinHandler(BaseTaskHandler):
                     )
 
         exp_gained: int = actual_coined * 10
+        # 0.2.0：用经验快照对比验证真实经验获得量
+        #   - 投币期间累计获得 exp 应 ≈ actual_coined * 10
+        #   - real_delta 是 nav 接口返回的真实经验变化，比推算更可靠
+        #   - 容差 ±5（避免 B 站服务端经验小幅波动误判）
+        real_delta = await self.refresh_exp_snapshot()
+        if real_delta > 0 and abs(real_delta - exp_gained) <= 5:
+            # 真实经验与推算一致，用推算值（更精确）
+            final_exp = exp_gained
+            delta_note = f"经验快照对比 +{real_delta}（与预期一致）"
+        elif real_delta > 0:
+            # 真实经验与推算不一致，按真实值报
+            final_exp = real_delta
+            delta_note = (
+                f"经验快照对比 +{real_delta}（与预期 {exp_gained} 不符，按真实值报）"
+            )
+        else:
+            # real_delta = 0：可能别处已完成投币任务或风控
+            final_exp = 0
+            delta_note = (
+                f"经验快照对比 delta=0（未获得经验，可能别处已完成投币任务）"
+            )
+
+        success = final_exp > 0 or actual_coined > 0
         return TaskResult(
-            success=True,
-            message=f"投币完成：计划 {plan}，实际 {actual_coined}",
-            exp_gained=exp_gained,
+            success=success,
+            message=(
+                f"投币完成：计划 {plan}，实际 {actual_coined}。{delta_note}"
+            ),
+            exp_gained=final_exp,
             detail={
                 "current_coins": current,
                 "reserve_coins": reserve_coins,
                 "plan": plan,
                 "actual": actual_coined,
                 "videos": detailed,
+                "exp_delta": real_delta,
+                "estimated_exp": exp_gained,
             },
         )

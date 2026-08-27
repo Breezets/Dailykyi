@@ -11,7 +11,7 @@
   <img alt="SQLite" src="https://img.shields.io/badge/SQLite-3.x-003B57?logo=sqlite&logoColor=white"/>
   <img alt="Docker" src="https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white"/>
   <img alt="License: MIT" src="https://img.shields.io/github/license/breezets/Dailykyi?color=fb7299"/>
-  <img alt="Release" src="https://img.shields.io/badge/version-v0.1.1-23ADE5"/>
+  <img alt="Release" src="https://img.shields.io/badge/version-v0.2.0-23ADE5"/>
 </p>
 
 Dailykyi 是一个可视化的 B 站每日任务自动化工具。只需完成一次扫码登录，它会按你设定的策略自动完成 **投币 / 观看 / 分享 / 直播签到 / 银瓜子兑换** 等任务，并把执行结果推送到你的手机上。
@@ -26,12 +26,22 @@ Dailykyi 是一个可视化的 B 站每日任务自动化工具。只需完成�
 |---|---|
 | 🎨 UI | 22 粉 / 33 蓝 双主题一键切换 · 侧边栏吉祥物轮播图 |
 | 🔐 账号 | 管理员密码登录 · 首次强制改密 · B 站扫码登录自动存 Cookie |
-| 🪄 任务 | 投币策略（数量 / 是否给自己 / 按优先分区）· 观看时长 · 分享 · 直播签到 · 银瓜子兑换硬币 |
+| 🪄 任务 | 投币策略（数量 / 是否给自己 / 按优先分区）· 观看时长（300/310/350s 满足 5 分钟规则）· 分享 · 直播签到 · 银瓜子兑换硬币 |
 | ⏰ 调度 | 可视化配置每日执行时间 · Cron 定时触发 · 支持手动立即执行 |
-| 📊 仪表盘 | 多账号状态一览 · 今日经验增长 · 任务成功 / 失败统计 |
-| 📜 日志 | 结构化任务列表 · 实时日志流 WebSocket 推送 · 按账号 / 级别过滤 |
-| 🔔 推送 | Server酱 微信公众号推送 · Bark iOS 推送（失败提醒 / 每日报告） |
-| 🐳 部署 | Docker Compose 三容器编排（nginx + frontend-static + backend + sqlite持久化） |
+| 📊 仪表盘 | 多账号状态一览 · 今日经验增长（基于经验快照 24h 前后对比，不再依赖任务上报数值）· LV6 预估达成日期 · 任务成功 / 失败统计 |
+| 📜 日志 | 结构化任务列表 · 实时日志流 SSE 推送 · 按账号 / 级别过滤 · 本地时区显示 |
+| 🔔 推送 | Server酱 微信公众号推送 · Bark iOS 推送（失败提醒 / 每日报告）· 每日汇总按用户已启用任务数触发（不再固定三任务判定） |
+| 🐳 部署 | Docker Compose 三容器编排（nginx + frontend-static + backend + sqlite持久化）· 容器时区 Asia/Shanghai 与本机一致 |
+| 🚀 升级 | 右上角快捷版本检测徽章（4h 缓存）· 一键升级 · GitHub Releases 自动检查 |
+
+### v0.2.0 新特性
+
+- **经验快照机制**：每 6 小时自动记录一次账号经验 + 任务执行后主动记录一次，前后对比真实经验 delta，杜绝任务虚报 +5 的历史 bug
+- **LV6 预估**：基于近 7 天经验快照日均计算到达 LV6 还需天数与达成日期
+- **每日汇总按需触发**：用户启用的任务全部执行完毕后才发汇总通知（不再"三任务固定判定"）
+- **任务经验真实判定**：投币/观看/分享不再依赖 B 站接口 bool 状态，改用经验快照 delta 准确判断是否真获得经验（可识别"别处设备已完成"场景）
+- **日志时间本地化**：修复容器时区导致日志显示晚 8 小时的问题
+- **快捷版本徽章**：右上角仅在有新版本时显示，4h 缓存避免频繁打 GitHub API
 
 ---
 
@@ -65,6 +75,23 @@ docker compose up -d
 
 > ⚠️ 首次登录会**强制修改默认密码**。部署到公网服务器时，把 `localhost` 换成服务器 IP 或域名即可。
 
+#### 📜 脚本一键部署（服务器推荐）
+
+手动步骤太多？直接用项目自带的部署脚本：
+
+```bash
+# 克隆后进入项目目录，然后：
+bash scripts/install.sh        # 一键部署：环境检查 → 生成 .env → 构建前端 → 启动服务
+```
+
+日常升级（拉新版本 + 重建 + 重启，数据保留）：
+
+```bash
+bash scripts/update.sh
+```
+
+也可以在面板「系统设置 → 版本与升级」里点「检查更新 / 一键升级」，效果相同。
+
 ---
 
 ### 方式二：本地开发调试（前后端热重载）
@@ -73,7 +100,7 @@ docker compose up -d
 docker compose -f docker-compose.dev.yml up
 ```
 
-- 前端开发服务器（Vite HMR）：http://localhost:3000
+- 前端开发服务器（Vite HMR）：http://localhost:23333（端口与生产部署统一）
 - 后端 API（FastAPI --reload）：http://localhost:8000
 - API 文档：http://localhost:8000/docs
 - 前端 Vite 已配置 `/api` 代理 → `http://localhost:8000`，直接联调无需处理跨域。

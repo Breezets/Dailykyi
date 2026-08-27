@@ -29,6 +29,13 @@ class Account(Base):
     cookie_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True, comment="Fernet 加密")
     cookie_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
+    # Cookie 健康检测（0.2.0 新增，由定时任务维护）
+    cookie_status: Mapped[str] = mapped_column(
+        String(16), default="unknown", server_default="unknown",
+        nullable=False, comment="unknown / ok / expired",
+    )
+    cookie_checked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
     # 状态
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

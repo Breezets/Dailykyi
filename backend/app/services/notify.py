@@ -273,6 +273,22 @@ class NotifyService:
         body = f"【{username}】Cookie 将在 {days_left} 天后过期，建议重新扫码登录"
         await self.send(account.uid, "cookie_warning", body, is_urgent=True)
 
+    async def send_cookie_expired(
+        self,
+        account: Account,
+    ) -> None:
+        """Cookie 已失效告警：urgent，不受免打扰限制（0.2.0）。"""
+        cfg = await self._load_config()
+        if not cfg["notify_cookie_warning"]:
+            return
+
+        username = account.username or f"UID:{account.uid}"
+        body = (
+            f"【{username}】Cookie 已失效，任务将无法执行，"
+            f"请尽快到面板重新扫码登录"
+        )
+        await self.send(account.uid, "cookie_expired", body, is_urgent=True)
+
     async def send_risk_alert(
         self,
         account: Account,

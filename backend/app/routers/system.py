@@ -1,4 +1,4 @@
-"""系统设置路由：GET/PUT 配置 + Debug 推送测试。"""
+"""系统设置路由：GET/PUT 配置 + Debug 推送测试 + 版本升级。"""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from app.database import get_db
 from app.models.account import Account
 from app.models.system_config import SystemConfig
 from app.services.notify import NotifyService
+from app.services.upgrade import check_update, run_update
 
 router = APIRouter()
 
@@ -47,6 +48,18 @@ async def update_system_config(
         logger.info(f"系统配置更新: {key} = {value!r}")
     await db.commit()
     return {"status": "ok"}
+
+
+@router.get("/upgrade/check")
+async def upgrade_check() -> dict[str, Any]:
+    """检查 GitHub 是否有新版本（0.2.0）。"""
+    return await check_update()
+
+
+@router.post("/upgrade/execute")
+async def upgrade_execute() -> dict[str, Any]:
+    """一键升级：后台执行 scripts/update.sh（0.2.0）。"""
+    return await run_update()
 
 
 @router.post("/notify/test-failure")
