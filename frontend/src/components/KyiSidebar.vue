@@ -121,7 +121,7 @@ onUnmounted(() => {
           <img
             :src="mascots[currentMascotIdx]"
             :key="currentMascotIdx"
-            alt="2233 吉祥物"
+            alt="2233娘"
             class="sidebar__mascot-img"
           />
         </transition>

@@ -17,6 +17,14 @@ data/
 .env.local
 .env.*.local
 
+# 仅供本机使用的项目文档（项目结构说明 / 开发备忘录 / 内部架构草稿）
+# 不随开源仓库发布，开发者本地保留即可
+project.md
+PROJECT.md
+
+# 临时 release markdown / 其它一次性工作文件
+.tmp/
+
 # Cookie、凭据、日志备份
 *.bak
 *.dump

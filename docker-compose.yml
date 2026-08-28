@@ -5,11 +5,18 @@ services:
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
+      # - 可选：绑定宿主机项目根到容器 /host
+      #   用于「系统设置 → 一键升级」时由容器内脚本调用宿主机 docker compose 完成升级
+      - ./:/host
+      # - 可选：绑定宿主机 docker socket，让升级脚本可以在容器里操作宿主机 docker
+      - /var/run/docker.sock:/var/run/docker.sock
     env_file:
       - .env
     environment:
       - DAILYKYI_DATABASE_URL=${DAILYKYI_DATABASE_URL:-sqlite+aiosqlite:///data/dailykyi.db}
       - TZ=Asia/Shanghai
+      # 一键升级脚本查找顺序：HOST_PROJECT_DIR > /host > 容器内 /app
+      - DAILYKYI_HOST_PROJECT_DIR=/host
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]

@@ -11,7 +11,7 @@
   <img alt="SQLite" src="https://img.shields.io/badge/SQLite-3.x-003B57?logo=sqlite&logoColor=white"/>
   <img alt="Docker" src="https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white"/>
   <img alt="License: MIT" src="https://img.shields.io/github/license/breezets/Dailykyi?color=fb7299"/>
-  <img alt="Release" src="https://img.shields.io/badge/version-v0.2.1-23ADE5"/>
+  <img alt="Release" src="https://img.shields.io/badge/version-v0.2.5-23ADE5"/>
 </p>
 
 Dailykyi 是一个可视化的 B 站每日任务自动化工具。只需完成一次扫码登录，它会按你设定的策略自动完成 **投币 / 观看 / 分享 / 直播签到 / 银瓜子兑换** 等任务，并把执行结果推送到你的手机上。
@@ -24,7 +24,7 @@ Dailykyi 是一个可视化的 B 站每日任务自动化工具。只需完成�
 
 | 分类 | 功能 |
 |---|---|
-| 🎨 UI | 22 粉 / 33 蓝 双主题一键切换 · 侧边栏吉祥物轮播图 |
+| 🎨 UI | 22 粉 / 33 蓝 双主题一键切换 · 侧边栏 2233娘轮播图 |
 | 🔐 账号 | 管理员密码登录 · 首次强制改密 · B 站扫码登录自动存 Cookie |
 | 🪄 任务 | 投币策略（数量 / 是否给自己 / 按优先分区）· 观看时长（300/310/350s 满足 5 分钟规则）· 分享 · 直播签到 · 银瓜子兑换硬币 |
 | ⏰ 调度 | 可视化配置每日执行时间 · Cron 定时触发 · 支持手动立即执行 |
@@ -33,6 +33,18 @@ Dailykyi 是一个可视化的 B 站每日任务自动化工具。只需完成�
 | 🔔 推送 | Server酱 微信公众号推送 · Bark iOS 推送（失败提醒 / 每日报告）· 每日汇总按用户已启用任务数触发（不再固定三任务判定） |
 | 🐳 部署 | Docker Compose 三容器编排（nginx + frontend-static + backend + sqlite持久化）· 容器时区 Asia/Shanghai 与本机一致 |
 | 🚀 升级 | 右上角快捷版本检测徽章（4h 缓存）· 一键升级 · GitHub Releases 自动检查 |
+
+### v0.2.5 新特性
+
+- **project.md 不再跟随开源仓库发布**：已加入 `.gitignore` 并从 git 追踪中移除（本地开发自用文档保留）
+- **术语修正**：README 与前端源码中的「吉祥物」统一改为官方称呼「2233娘」（含 UI alt 属性与工具说明）
+- **修复系统设置一键升级报错「升级脚本不存在: /scripts/update.sh」**（从 0.2.0/0.2.1 升级常见问题）
+  - 后端升级服务现在按 5 条路径依次查找脚本，报错时给出「已搜索的路径 + 三种解决方法」
+  - Docker 生产 compose 默认把项目根 bind-mount 进容器 `/host`，后端容器内即可执行宿主机的升级流程
+  - Dockerfile 默认把 `scripts/` 和 `docker-compose.yml` 打进后端镜像兜底；容器内预装 bash + docker CLI
+  - `scripts/update.sh` 现在同时支持「源码模式 (git pull→build→up -d)」和「纯镜像模式 (pull→up -d)」
+- **真正的 Docker 一键部署脚本**：`scripts/install-docker.sh`，支持 `curl | bash` 一行部署，**不需要 `git clone` / 不需要 npm / 不需要 python**（详见方式一·A 一键脚本）
+- **部署文档按你要求重写**：本地部署 / Docker 分批手动部署 / Docker 一键脚本部署 三种形态独立小节
 
 ### v0.2.1 新特性
 
@@ -54,65 +66,128 @@ Dailykyi 是一个可视化的 B 站每日任务自动化工具。只需完成�
 
 ## 🚀 快速开始
 
-### 方式一：Docker 一键部署（推荐）
+> **日常升级（所有部署方式通用命令）**：
+> ```bash
+> bash scripts/update.sh              # 源码部署：git pull → 构建前端 → 重建后端 → up -d
+> bash scripts/update.sh --image-only # 一键脚本部署（无源码）：拉最新镜像 + 重启容器
+> ```
+> 也可以在面板「**系统设置 → 版本与升级**」点「检查更新 / 一键升级」按钮，效果与命令相同。
 
-> 环境要求：Docker ≥ 20.10，Docker Compose ≥ 2.0
+---
+
+### 方式一 · A：Docker 一键脚本部署（**最推荐·真·一行**）
+
+**不需要 `git clone`，不需要安装 Node/Python，仅需服务器有 Docker**：
+- 自动拉最新官方镜像
+- 自动生成 `/opt/dailykyi` 目录结构（compose / .env / data / logs / scripts）
+- 自动生成随机 **SECRET_KEY**，默认凭证 + 端口可通过传参覆盖
+- 自动健康检查，成功后直接打印访问地址与常用命令
 
 ```bash
-# 1. 克隆仓库
-git clone https://github.com/breezets/Dailykyi.git
-cd Dailykyi
-
-# 2. 复制环境变量模板（按需修改 SECRET_KEY / DEFAULT_ADMIN_PASSWORD）
-cp .env.example .env
-
-# 3. 构建前端静态资源
-cd frontend && npm install && npm run build && cd ..
-
-# 4. 一键启动（三容器：nginx / backend / sqlite 数据卷）
-docker compose up -d
+# 最简单：默认端口 23333 / 默认账号 2233 / 默认密码 tv23333
+bash <(curl -sSL https://raw.githubusercontent.com/breezets/Dailykyi/main/scripts/install-docker.sh)
 ```
 
-启动完成后访问：**http://localhost:23333**
+常用参数（脚本设计成 `curl … | bash -s -- --port …` 这种也能跑）：
+
+```bash
+# 自定义公网端口 + 默认账号密码
+bash <(curl -sSL https://raw.githubusercontent.com/breezets/Dailykyi/main/scripts/install-docker.sh) \
+  --port 8080 --username admin --password '请改成你自己的强密码'
+
+# 有公网域名：启动后直接显示 https 地址
+bash <(curl -sSL https://raw.githubusercontent.com/breezets/Dailykyi/main/scripts/install-docker.sh) \
+  --domain dailykyi.example.com --port 443
+
+# 升级已部署的 Dailykyi（保留 .env / 数据 / 日志，仅拉最新镜像并重启）
+bash <(curl -sSL https://raw.githubusercontent.com/breezets/Dailykyi/main/scripts/install-docker.sh) --upgrade
+
+# 卸载（默认保留数据卷；加 --delete-data 则一并删除数据库与配置）
+bash <(curl -sSL https://raw.githubusercontent.com/breezets/Dailykyi/main/scripts/install-docker.sh) --uninstall
+```
+
+> 若你的服务器访问 GitHub raw 较慢，也可以先把脚本内容 `curl -o install.sh URL` 存下再运行 `bash install.sh`，功能完全一样。
+
+启动完成后访问：**http://服务器公网IP:23333**
 
 | 默认项 | 值 |
 |---|---|
 | 默认账号 | `2233` |
 | 默认密码 | `tv23333` |
 
-> ⚠️ 首次登录会**强制修改默认密码**。部署到公网服务器时，把 `localhost` 换成服务器 IP 或域名即可。
-
-#### 📜 脚本一键部署（服务器推荐）
-
-手动步骤太多？直接用项目自带的部署脚本：
-
-```bash
-# 克隆后进入项目目录，然后：
-bash scripts/install.sh        # 一键部署：环境检查 → 生成 .env → 构建前端 → 启动服务
-```
-
-日常升级（拉新版本 + 重建 + 重启，数据保留）：
-
-```bash
-bash scripts/update.sh
-```
-
-也可以在面板「系统设置 → 版本与升级」里点「检查更新 / 一键升级」，效果相同。
+> ⚠️ 首次登录会**强制修改默认密码**。部署到公网服务器时务必修改默认密码或使用 `--password` 参数覆盖。
 
 ---
 
-### 方式二：本地开发调试（前后端热重载）
+### 方式一 · B：Docker 分批手动部署（要改源码 / 走自建镜像时用）
+
+> 环境要求：Docker ≥ 20.10，Docker Compose ≥ 2.0，Node ≥ 18（需要构建前端静态文件时）
 
 ```bash
+# ① 克隆仓库
+git clone https://github.com/breezets/Dailykyi.git
+cd Dailykyi
+
+# ② 复制环境变量模板（必须修改 SECRET_KEY / 默认密码）
+cp .env.example .env
+
+# ③ 构建前端静态资源（交给 nginx 容器提供）
+cd frontend && npm install && npm run build && cd ..
+
+# ④ 三容器编排启动：nginx / backend / sqlite 数据卷
+docker compose up -d
+```
+
+手动升级（保留数据 / 日志）：
+
+```bash
+git pull --ff-only origin main        # 或：main 改成你的分支
+cd frontend && npm install && npm run build && cd ..
+docker compose build backend
+docker compose up -d
+```
+
+---
+
+### 方式二：本地开发部署（前后端热重载，贡献代码用）
+
+```bash
+# Docker Compose dev：Vite HMR 前端 + FastAPI --reload 后端 + 本地 SQLite
 docker compose -f docker-compose.dev.yml up
 ```
 
-- 前端开发服务器（Vite HMR）：http://localhost:23333（端口与生产部署统一）
-- 后端 API（FastAPI --reload）：http://localhost:8000
-- API 文档：http://localhost:8000/docs
-- 前端 Vite 已配置 `/api` 代理 → `http://localhost:8000`，直接联调无需处理跨域。
+- 前端开发服务器（Vite HMR）：**http://localhost:23333**（端口与生产部署统一）
+- 后端 API：**http://localhost:8000**
+- Swagger 文档：**http://localhost:8000/docs**
+- 前端 Vite 已配置 `/api` → 后端代理，直接联调无需处理跨域
+
+也可以在宿主机分两次跑（非 docker）：
+
+```bash
+# 终端 1（后端）
+cd backend && pip install -r requirements.txt && uvicorn app.main:app --reload --port 8000
+
+# 终端 2（前端）
+cd frontend && npm install && npm run dev
+```
 
 ---
+
+## 🔧 关于一键升级常见问题（从 v0.2.0 / v0.2.1 升级必读）
+
+**Q：点击「一键升级」后报错 升级脚本不存在: /scripts/update.sh？**
+A：这是老版本 compose **没有把宿主机项目根挂载进容器**导致。解决方法（任选其一，推荐第一条）：
+1. 使用 v0.2.5 的 docker-compose.yml 重启一次后端：
+   ```bash
+   curl -sSLo docker-compose.yml https://raw.githubusercontent.com/breezets/Dailykyi/main/docker-compose.yml
+   docker compose up -d backend
+   ```
+   然后在系统设置里再点一键升级即可。
+2. 或者：直接在服务器上执行升级命令（和面板效果等价）：
+   ```bash
+   bash <(curl -sSL https://raw.githubusercontent.com/breezets/Dailykyi/main/scripts/install-docker.sh) --upgrade
+   ```
+3. 或者：先从界面外升级到 v0.2.5 后，后面的所有小版本都能在面板里一键升级完成。
 
 ## ⚙️ 环境变量说明（`.env`）
 
@@ -130,7 +205,7 @@ docker compose -f docker-compose.dev.yml up
 
 ---
 
-## 🎨 吉祥物图片替换
+## 🎨 2233娘图片替换
 
 Dailykyi 预置了 22 & 33 的角色图位，直接覆盖同名文件即可生效，**无需重新构建前端**：
 
