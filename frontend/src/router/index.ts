@@ -33,6 +33,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: "执行日志" },
   },
   {
+    path: "/exp-logs",
+    name: "exp-logs",
+    component: () => import("@/views/ExpLogView.vue"),
+    meta: { title: "经验日志" },
+  },
+  {
     path: "/settings",
     name: "settings",
     component: () => import("@/views/SystemSettingsView.vue"),

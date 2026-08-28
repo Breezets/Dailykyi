@@ -335,6 +335,10 @@ class TaskScheduler:
                 log.detail = result.detail
                 log.exp_gained = result.exp_gained
                 log.completed_at = datetime.now()
+                # 0.2.1：合并 handler.last_exp_info 到 detail，供前端显示 "获得 X，当前 Y"
+                if getattr(handler, "last_exp_info", None) is not None:
+                    log.detail = dict(log.detail or {})
+                    log.detail.update(handler.last_exp_info)  # before_exp/after_exp/delta
                 await db.commit()
                 self._failure_counts[(uid, task_type)] = 0
                 logger.info(
@@ -354,6 +358,9 @@ class TaskScheduler:
                 log.detail = result.detail
                 log.exp_gained = result.exp_gained
                 log.completed_at = datetime.now()
+                if getattr(handler, "last_exp_info", None) is not None:
+                    log.detail = dict(log.detail or {})
+                    log.detail.update(handler.last_exp_info)
                 await db.commit()
                 logger.info(
                     f"任务跳过 uid={uid} type={task_type}: {result.message}"
@@ -594,31 +601,120 @@ async def _cookie_check_job() -> None:
 
 
 async def _exp_snapshot_job() -> None:
-    """系统级任务：每 6 小时为所有账号记录一次经验快照（0.2.0）。
+    """系统级任务：每 6 小时为所有账号记录一次经验快照（0.2.1 修复版）。
 
-    目的：用快照前后对比精确计算"今日经验增量"，替代 TaskLog.exp_gained 汇总
-    （后者依赖任务上报数值，曾因 bug 误报 +5）。
-    实现策略：直接读 accounts 表的 current_exp 缓存字段，不调用 B 站 API，
-    避免触发风控；快照频率足够（24h 内 4 个点）。
+    0.2.1 修复：原来只读 accounts.current_exp 缓存，不调 B 站 API。
+    如果用户在 APP/其他设备完成任务获得经验，Dailykyi 感知不到，
+    导致今日经验、LV6 预估全不准。
+
+    改为：为每个账号
+      1. 解密 Cookie → 创建 BiliClient → 调 nav 接口刷新 current_exp
+      2. 查最近一条 ExpSnapshot（计算 delta 用）
+      3. 写一条 source='passive' 的新快照
+    这样无论用户是在 Dailykyi 还是其他设备操作，经验都能同步到快照表。
     """
+    from app.deps import decrypt_cookie
+    from app.exceptions import BiliAPIException
     from app.models.exp_snapshot import ExpSnapshot
+    from app.services.anti_detect import random_delay
+    from app.services.bili_api import BiliClient
 
     async with AsyncSessionLocal() as db:
         try:
             result = await db.execute(select(Account))
             accounts = list(result.scalars().all())
             now = datetime.now()
-            for acc in accounts:
-                snapshot = ExpSnapshot(
-                    account_uid=acc.uid,
-                    exp=int(acc.current_exp or 0),
-                    level=int(acc.level or 0),
-                    coins=int(acc.coins or 0),
-                    recorded_at=now,
-                )
-                db.add(snapshot)
+            ok_count = 0
+
+            for idx, acc in enumerate(accounts):
+                # 账号间随机间隔 3~8 秒，避免批量请求 B 站触发风控
+                if idx > 0:
+                    await random_delay(3, 8)
+
+                cookie_str = decrypt_cookie(acc.cookie_encrypted or "")
+                if not cookie_str:
+                    # 无 Cookie：直接用缓存写快照（总比不写好）
+                    snap = ExpSnapshot(
+                        account_uid=acc.uid,
+                        exp=int(acc.current_exp or 0),
+                        level=int(acc.level or 0),
+                        coins=int(acc.coins or 0),
+                        source="passive",
+                        recorded_at=now,
+                    )
+                    db.add(snap)
+                    continue
+
+                client = BiliClient(cookies=cookie_str)
+                try:
+                    # 调 B 站 nav 接口刷新真实 current_exp / level / coins
+                    info = await client.get_user_info()
+                    from app.services.task_handlers.base import BaseTaskHandler
+
+                    # 借用 BaseTaskHandler 的静态方法 _apply_nav_info（通过实例化临时对象不方便，
+                    # 直接手写同步逻辑）
+                    def _safe_int(val):
+                        try:
+                            return int(val)
+                        except (ValueError, TypeError):
+                            return 0
+
+                    acc.username = info.get("uname") or acc.username
+                    acc.avatar_url = info.get("face") or acc.avatar_url
+                    acc.coins = _safe_int(info.get("money", 0))
+                    level_info = info.get("level_info") or {}
+                    acc.level = _safe_int(level_info.get("current_level", 0))
+                    acc.current_exp = _safe_int(level_info.get("current_exp", 0))
+                    acc.next_level_exp = _safe_int(level_info.get("next_exp", 0))
+
+                    snap = ExpSnapshot(
+                        account_uid=acc.uid,
+                        exp=int(acc.current_exp or 0),
+                        level=int(acc.level or 0),
+                        coins=int(acc.coins or 0),
+                        source="passive",
+                        recorded_at=now,
+                    )
+                    db.add(snap)
+                    ok_count += 1
+                except BiliAPIException as exc:
+                    logger.warning(
+                        f"exp-snapshot uid={acc.uid} 调 nav 失败: {exc}，"
+                        f"回退到缓存值"
+                    )
+                    snap = ExpSnapshot(
+                        account_uid=acc.uid,
+                        exp=int(acc.current_exp or 0),
+                        level=int(acc.level or 0),
+                        coins=int(acc.coins or 0),
+                        source="passive",
+                        recorded_at=now,
+                    )
+                    db.add(snap)
+                except Exception as exc:  # noqa: BLE001
+                    logger.exception(
+                        f"exp-snapshot uid={acc.uid} 异常: {exc}"
+                    )
+                    snap = ExpSnapshot(
+                        account_uid=acc.uid,
+                        exp=int(acc.current_exp or 0),
+                        level=int(acc.level or 0),
+                        coins=int(acc.coins or 0),
+                        source="passive",
+                        recorded_at=now,
+                    )
+                    db.add(snap)
+                finally:
+                    try:
+                        await client.close()
+                    except Exception:  # noqa: BLE001
+                        pass
+
             await db.commit()
-            logger.info(f"经验快照任务完成，记录 {len(accounts)} 个账号")
+            logger.info(
+                f"经验快照（被动）任务完成，记录 {len(accounts)} 个账号，"
+                f"nav 刷新成功 {ok_count}/{len(accounts)}"
+            )
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"经验快照任务异常: {exc}")
 

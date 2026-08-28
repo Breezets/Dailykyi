@@ -74,6 +74,42 @@ async def _ensure_account_columns() -> None:
         await conn.commit()
 
 
+async def _ensure_exp_snapshot_columns() -> None:
+    """0.2.1 补列：为已存在的 exp_snapshots 表补充 source 字段。"""
+    from sqlalchemy import text
+
+    async with engine.connect() as conn:
+        table_exists = await conn.scalar(
+            text(
+                "SELECT name FROM sqlite_master "
+                "WHERE type='table' AND name='exp_snapshots'"
+            )
+        )
+        if not table_exists:
+            return
+
+        cols = await conn.execute(text("PRAGMA table_info(exp_snapshots)"))
+        existing = {row[1] for row in cols.fetchall()}
+
+        if "source" not in existing:
+            await conn.execute(
+                text(
+                    "ALTER TABLE exp_snapshots ADD COLUMN "
+                    "source VARCHAR(16) NOT NULL DEFAULT 'task'"
+                )
+            )
+            try:
+                await conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS "
+                        "ix_exp_snapshots_source ON exp_snapshots(source)"
+                    )
+                )
+            except Exception:  # noqa: BLE001
+                pass
+        await conn.commit()
+
+
 async def init_db() -> None:
     """开发期建表；生产应使用 Alembic 迁移。"""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -83,3 +119,5 @@ async def init_db() -> None:
         await conn.run_sync(Base.metadata.create_all)
     # 兼容旧库：补 0.2.0 新增列
     await _ensure_account_columns()
+    # 兼容旧库：补 0.2.1 新增 source 列
+    await _ensure_exp_snapshot_columns()

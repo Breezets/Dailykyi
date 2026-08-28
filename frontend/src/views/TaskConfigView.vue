@@ -348,32 +348,107 @@ async function testTask(taskType: string): Promise<void> {
   }
 }
 
-async function toggleSimpleTask(taskType: string, nextEnabled: boolean): Promise<void> {
-  // 关闭时弹确认框
+/** 0.2.1：开关切换即"保存生效"，不再需要用户再手动点保存。
+ *
+ *  - 开启：直接调 updateTaskConfig 保存 enabled=true（保留当前该任务表单其他值）
+ *  - 关闭：弹「确定关闭该任务吗？」，确认 → 调 updateTaskConfig 保存 enabled=false
+ *           取消 → 把开关重新拨回去，不调用后端
+ *
+ *  注意：enabled=false 时，UI 会通过 :disabled 让卡片内除开关外的控件全部不可交互，
+ *        并整体变灰（见 :class="cardDisabled(...) 和 CSS）。
+ */
+async function saveCoinPayloadOnly(partial: { enabled?: boolean }): Promise<void> {
+  if (!selectedUid.value) return;
+  const payload = buildCoinPayload();
+  if (partial.enabled !== undefined) payload.enabled = partial.enabled;
+  await updateTaskConfig(selectedUid.value, "coin", payload);
+}
+
+async function saveSimplePayloadOnly(
+  taskType: "watch" | "share",
+  partial: { enabled?: boolean }
+): Promise<void> {
+  if (!selectedUid.value) return;
+  const data = taskSimple[taskType];
+  const config: Record<string, unknown> = {};
+  if (taskType === "watch") {
+    config.duration_seconds = data.duration_seconds;
+    config.source = data.source;
+  }
+  const sch = simpleSchedule[taskType];
+  const scheduleMode = sch.schedule_mode;
+  const scheduleConfig = sch.schedule_mode === "fixed"
+    ? { hour: parseTime(sch.fixed_time).hour, minute: parseTime(sch.fixed_time).minute }
+    : {
+        time_range: { start: sch.random_start, end: sch.random_end },
+        min_interval_minutes: sch.min_interval_minutes,
+        count: 3,
+      };
+  await updateTaskConfig(selectedUid.value, taskType, {
+    config,
+    schedule_config: scheduleConfig,
+    enabled: partial.enabled ?? data.enabled,
+    schedule_mode: scheduleMode,
+  });
+}
+
+const switchSaving = reactive<Record<string, boolean>>({
+  coin: false, watch: false, share: false,
+});
+
+const taskNamesZh: Record<string, string> = {
+  coin: "投币", watch: "观看", share: "分享",
+};
+
+async function toggleTaskEnabled(taskType: "coin" | "watch" | "share", nextEnabled: boolean): Promise<void> {
+  // 关闭：先弹确认，取消则回滚开关
   if (!nextEnabled) {
     try {
-      await ElMessageBox.confirm("确定关闭该任务吗？", "提示", { type: "warning" });
+      await ElMessageBox.confirm(
+        "关闭后该任务不会再执行，确定关闭该任务吗？",
+        "关闭任务",
+        { confirmButtonText: "关闭", cancelButtonText: "取消", type: "warning" },
+      );
     } catch {
-      // 取消：恢复开关，不保存
-      taskSimple[taskType].enabled = true;
+      // 用户取消：把开关回滚到 true
+      if (taskType === "coin") {
+        coinForm.enabled = true;
+      } else {
+        taskSimple[taskType].enabled = true;
+      }
       return;
     }
   }
-  await saveSimpleConfig(taskType);
+
+  switchSaving[taskType] = true;
+  const zh = taskNamesZh[taskType] || taskType;
+  try {
+    if (taskType === "coin") {
+      await saveCoinPayloadOnly({ enabled: nextEnabled });
+    } else {
+      await saveSimplePayloadOnly(taskType, { enabled: nextEnabled });
+    }
+    ElMessage.success(nextEnabled ? `${zh}任务已启用` : `${zh}任务已关闭`);
+    if (selectedUid.value != null) {
+      await loadTaskConfigs(selectedUid.value);
+    }
+  } catch (err: any) {
+    // 失败：把开关回滚
+    ElMessage.error(`保存失败：${err?.message || "未知错误"}`);
+    if (taskType === "coin") {
+      coinForm.enabled = !nextEnabled;
+    } else {
+      taskSimple[taskType].enabled = !nextEnabled;
+    }
+  } finally {
+    switchSaving[taskType] = false;
+  }
 }
 
-async function confirmDisable(taskType: string, nextEnabled: boolean): Promise<void> {
-  if (nextEnabled) return;
-  try {
-    await ElMessageBox.confirm("确定关闭该任务吗？", "提示", { type: "warning" });
-  } catch {
-    // 取消：恢复开关
-    if (taskType === "coin") {
-      coinForm.enabled = true;
-    } else {
-      taskSimple[taskType].enabled = true;
-    }
-  }
+/** 用于给除开关外元素加 :disabled 的 getter。 */
+function isTaskDisabled(taskType: "coin" | "watch" | "share"): boolean {
+  if (taskType === "coin") return !coinForm.enabled;
+  return !taskSimple[taskType].enabled;
 }
 
 // 直播签到 / 银瓜子换币：开关固定关闭，点击给"开发中"提示
@@ -413,7 +488,12 @@ function notifyDeveloping(): void {
             <span class="tab-label"><el-icon><Coin /></el-icon> 投币</span>
           </template>
 
-          <KyiCard title="投币任务" icon="🪙" color="var(--kyi-primary)">
+          <KyiCard
+            title="投币任务"
+            icon="🪙"
+            color="var(--kyi-primary)"
+            :class="{ 'disabled-task-card': isTaskDisabled('coin') }"
+          >
             <div class="coin-summary">
               当前账号有 <strong>{{ currentAccount?.coins ?? 0 }}</strong> 个硬币，
               所以今天会投 <strong>{{ plannedCoins }}</strong> 个币
@@ -422,16 +502,21 @@ function notifyDeveloping(): void {
 
             <el-form label-width="120px" class="config-form">
               <el-form-item label="启用任务">
+                <!-- 开关永远允许切换；关闭后其他控件变灰禁用 -->
                 <el-switch
                   v-model="coinForm.enabled"
                   active-text="开"
                   inactive-text="关"
-                  @change="(v: any) => confirmDisable('coin', v as boolean)"
+                  :loading="switchSaving.coin"
+                  @change="(v: any) => toggleTaskEnabled('coin', v as boolean)"
                 />
+                <span class="inline-tip" v-if="isTaskDisabled('coin')">
+                  已关闭：其他选项暂时不可编辑（打开开关即可恢复）
+                </span>
               </el-form-item>
 
               <el-form-item label="投币模式">
-                <el-radio-group v-model="coinForm.mode">
+                <el-radio-group v-model="coinForm.mode" :disabled="isTaskDisabled('coin')">
                   <el-radio-button label="fixed">固定数量</el-radio-button>
                   <el-radio-button label="smart">智能档位</el-radio-button>
                 </el-radio-group>
@@ -439,7 +524,13 @@ function notifyDeveloping(): void {
 
               <template v-if="coinForm.mode === 'fixed'">
                 <el-form-item label="每日投币数">
-                  <el-slider v-model="coinForm.fixed_limit" :min="1" :max="5" show-stops />
+                  <el-slider
+                    v-model="coinForm.fixed_limit"
+                    :min="1"
+                    :max="5"
+                    show-stops
+                    :disabled="isTaskDisabled('coin')"
+                  />
                   <div class="form-tip">可获得 {{ coinForm.fixed_limit * 10 }} 经验</div>
                 </el-form-item>
               </template>
@@ -451,26 +542,52 @@ function notifyDeveloping(): void {
                       v-for="(tier, idx) in coinForm.smart_tiers"
                       :key="idx"
                       class="tier-row"
+                      :class="{ 'row-disabled': isTaskDisabled('coin') }"
                     >
                       <span>当硬币 ≥</span>
-                      <el-input-number v-model="tier.min_coins" :min="0" :step="10" />
+                      <el-input-number
+                        v-model="tier.min_coins"
+                        :min="0"
+                        :step="10"
+                        :disabled="isTaskDisabled('coin')"
+                      />
                       <span>时，每天投</span>
-                      <el-input-number v-model="tier.daily_limit" :min="1" :max="5" />
+                      <el-input-number
+                        v-model="tier.daily_limit"
+                        :min="1"
+                        :max="5"
+                        :disabled="isTaskDisabled('coin')"
+                      />
                       <span>个</span>
-                      <el-button type="danger" link @click="removeSmartTier(idx)">删除</el-button>
+                      <el-button
+                        type="danger"
+                        link
+                        :disabled="isTaskDisabled('coin')"
+                        @click="removeSmartTier(idx)"
+                      >删除</el-button>
                     </div>
-                    <el-button type="primary" link @click="addSmartTier">+ 添加档位</el-button>
+                    <el-button
+                      type="primary"
+                      link
+                      :disabled="isTaskDisabled('coin')"
+                      @click="addSmartTier"
+                    >+ 添加档位</el-button>
                   </div>
                 </el-form-item>
               </template>
 
               <el-form-item label="保留硬币">
-                <el-input-number v-model="coinForm.reserve_coins" :min="0" :step="1" />
+                <el-input-number
+                  v-model="coinForm.reserve_coins"
+                  :min="0"
+                  :step="1"
+                  :disabled="isTaskDisabled('coin')"
+                />
                 <span class="form-tip">剩余硬币不会低于该值</span>
               </el-form-item>
 
               <el-form-item label="目标来源">
-                <el-radio-group v-model="coinForm.target_mode">
+                <el-radio-group v-model="coinForm.target_mode" :disabled="isTaskDisabled('coin')">
                   <el-radio-button label="specified">指定 UP</el-radio-button>
                   <el-radio-button label="recommend">推荐视频</el-radio-button>
                 </el-radio-group>
@@ -479,34 +596,51 @@ function notifyDeveloping(): void {
               <template v-if="coinForm.target_mode === 'specified'">
                 <el-form-item label="UID 列表">
                   <div class="uid-input-row">
-                    <el-input v-model="uidInput" placeholder="输入 UID 后回车或点击添加" @keyup.enter="addTargetUid" />
-                    <el-button type="primary" @click="addTargetUid">添加</el-button>
+                    <el-input
+                      v-model="uidInput"
+                      placeholder="输入 UID 后回车或点击添加"
+                      :disabled="isTaskDisabled('coin')"
+                      @keyup.enter="addTargetUid"
+                    />
+                    <el-button
+                      type="primary"
+                      :disabled="isTaskDisabled('coin')"
+                      @click="addTargetUid"
+                    >添加</el-button>
                   </div>
                   <div class="uid-tags">
                     <el-tag
                       v-for="(uid, idx) in coinForm.target_uids"
                       :key="uid"
-                      closable
+                      :closable="!isTaskDisabled('coin')"
                       @close="removeTargetUid(idx)"
                     >
                       {{ uid }}
                     </el-tag>
                   </div>
-                  <el-checkbox v-model="coinForm.fallback_to_recommend">
+                  <el-checkbox
+                    v-model="coinForm.fallback_to_recommend"
+                    :disabled="isTaskDisabled('coin')"
+                  >
                     指定 UP 视频不足时 fallback 到推荐
                   </el-checkbox>
                 </el-form-item>
               </template>
 
               <el-form-item label="调度方式">
-                <el-radio-group v-model="coinSchedule.schedule_mode">
+                <el-radio-group v-model="coinSchedule.schedule_mode" :disabled="isTaskDisabled('coin')">
                   <el-radio-button label="fixed">固定时间</el-radio-button>
                   <el-radio-button label="random">随机时间</el-radio-button>
                 </el-radio-group>
               </el-form-item>
 
               <el-form-item v-if="coinSchedule.schedule_mode === 'fixed'" label="执行时间">
-                <el-time-picker v-model="coinSchedule.fixed_time" format="HH:mm" value-format="HH:mm" />
+                <el-time-picker
+                  v-model="coinSchedule.fixed_time"
+                  format="HH:mm"
+                  value-format="HH:mm"
+                  :disabled="isTaskDisabled('coin')"
+                />
               </el-form-item>
 
               <template v-else>
@@ -516,6 +650,7 @@ function notifyDeveloping(): void {
                     format="HH:mm"
                     value-format="HH:mm"
                     placeholder="开始"
+                    :disabled="isTaskDisabled('coin')"
                   />
                   <span style="margin: 0 8px">至</span>
                   <el-time-picker
@@ -523,19 +658,33 @@ function notifyDeveloping(): void {
                     format="HH:mm"
                     value-format="HH:mm"
                     placeholder="结束"
+                    :disabled="isTaskDisabled('coin')"
                   />
                 </el-form-item>
                 <el-form-item label="最小间隔">
-                  <el-input-number v-model="coinSchedule.min_interval_minutes" :min="5" :max="240" :step="5" />
+                  <el-input-number
+                    v-model="coinSchedule.min_interval_minutes"
+                    :min="5"
+                    :max="240"
+                    :step="5"
+                    :disabled="isTaskDisabled('coin')"
+                  />
                   <span class="form-tip">分钟</span>
                 </el-form-item>
               </template>
 
               <el-form-item>
-                <el-button type="primary" :loading="saving" @click="saveCoinConfig">
-                  保存投币配置
-                </el-button>
-                <el-button :loading="testing" @click="testTask('coin')">立即测试</el-button>
+                <el-button
+                  type="primary"
+                  :loading="saving"
+                  :disabled="isTaskDisabled('coin')"
+                  @click="saveCoinConfig"
+                >保存投币配置</el-button>
+                <el-button
+                  :loading="testing"
+                  :disabled="isTaskDisabled('coin')"
+                  @click="testTask('coin')"
+                >立即测试</el-button>
               </el-form-item>
             </el-form>
           </KyiCard>
@@ -546,16 +695,28 @@ function notifyDeveloping(): void {
           <template #label>
             <span class="tab-label"><el-icon><VideoPlay /></el-icon> 观看</span>
           </template>
-          <KyiCard title="观看任务" icon="▶️" color="var(--kyi-secondary)">
+          <KyiCard
+            title="观看任务"
+            icon="▶️"
+            color="var(--kyi-secondary)"
+            :class="{ 'disabled-task-card': isTaskDisabled('watch') }"
+          >
             <el-form label-width="120px" class="config-form">
               <el-form-item label="启用任务">
                 <el-switch
                   v-model="taskSimple.watch.enabled"
-                  @change="(v: any) => confirmDisable('watch', v as boolean)"
+                  :loading="switchSaving.watch"
+                  @change="(v: any) => toggleTaskEnabled('watch', v as boolean)"
                 />
+                <span class="inline-tip" v-if="isTaskDisabled('watch')">
+                  已关闭：其他选项暂时不可编辑（打开开关即可恢复）
+                </span>
               </el-form-item>
               <el-form-item label="观看时长">
-                <el-radio-group v-model="taskSimple.watch.duration_seconds">
+                <el-radio-group
+                  v-model="taskSimple.watch.duration_seconds"
+                  :disabled="isTaskDisabled('watch')"
+                >
                   <el-radio-button :label="300">300 秒（5 分钟·保底）</el-radio-button>
                   <el-radio-button :label="310">310 秒（推荐）</el-radio-button>
                   <el-radio-button :label="350">350 秒（保守）</el-radio-button>
@@ -563,28 +724,63 @@ function notifyDeveloping(): void {
                 <div class="form-tip">B 站规则：连续观看视频累计 ≥ 300 秒才能拿 +5 经验，时长不够拿不到</div>
               </el-form-item>
               <el-form-item label="调度方式">
-                <el-radio-group v-model="simpleSchedule.watch.schedule_mode">
+                <el-radio-group
+                  v-model="simpleSchedule.watch.schedule_mode"
+                  :disabled="isTaskDisabled('watch')"
+                >
                   <el-radio-button label="fixed">固定时间</el-radio-button>
                   <el-radio-button label="random">随机时间</el-radio-button>
                 </el-radio-group>
               </el-form-item>
               <el-form-item v-if="simpleSchedule.watch.schedule_mode === 'fixed'" label="执行时间">
-                <el-time-picker v-model="simpleSchedule.watch.fixed_time" format="HH:mm" value-format="HH:mm" />
+                <el-time-picker
+                  v-model="simpleSchedule.watch.fixed_time"
+                  format="HH:mm"
+                  value-format="HH:mm"
+                  :disabled="isTaskDisabled('watch')"
+                />
               </el-form-item>
               <template v-else>
                 <el-form-item label="时间范围">
-                  <el-time-picker v-model="simpleSchedule.watch.random_start" format="HH:mm" value-format="HH:mm" placeholder="开始" />
+                  <el-time-picker
+                    v-model="simpleSchedule.watch.random_start"
+                    format="HH:mm"
+                    value-format="HH:mm"
+                    placeholder="开始"
+                    :disabled="isTaskDisabled('watch')"
+                  />
                   <span style="margin: 0 8px">至</span>
-                  <el-time-picker v-model="simpleSchedule.watch.random_end" format="HH:mm" value-format="HH:mm" placeholder="结束" />
+                  <el-time-picker
+                    v-model="simpleSchedule.watch.random_end"
+                    format="HH:mm"
+                    value-format="HH:mm"
+                    placeholder="结束"
+                    :disabled="isTaskDisabled('watch')"
+                  />
                 </el-form-item>
                 <el-form-item label="最小间隔">
-                  <el-input-number v-model="simpleSchedule.watch.min_interval_minutes" :min="5" :max="240" :step="5" />
+                  <el-input-number
+                    v-model="simpleSchedule.watch.min_interval_minutes"
+                    :min="5"
+                    :max="240"
+                    :step="5"
+                    :disabled="isTaskDisabled('watch')"
+                  />
                   <span class="form-tip">分钟</span>
                 </el-form-item>
               </template>
               <el-form-item>
-                <el-button type="primary" :loading="saving" @click="saveSimpleConfig('watch')">保存观看配置</el-button>
-                <el-button :loading="testing" @click="testTask('watch')">立即测试</el-button>
+                <el-button
+                  type="primary"
+                  :loading="saving"
+                  :disabled="isTaskDisabled('watch')"
+                  @click="saveSimpleConfig('watch')"
+                >保存观看配置</el-button>
+                <el-button
+                  :loading="testing"
+                  :disabled="isTaskDisabled('watch')"
+                  @click="testTask('watch')"
+                >立即测试</el-button>
               </el-form-item>
             </el-form>
           </KyiCard>
@@ -595,39 +791,83 @@ function notifyDeveloping(): void {
           <template #label>
             <span class="tab-label"><el-icon><Share /></el-icon> 分享</span>
           </template>
-          <KyiCard title="分享任务" icon="🔗" color="var(--kyi-success)">
+          <KyiCard
+            title="分享任务"
+            icon="🔗"
+            color="var(--kyi-success)"
+            :class="{ 'disabled-task-card': isTaskDisabled('share') }"
+          >
             <el-form label-width="120px" class="config-form">
               <el-form-item label="启用任务">
                 <el-switch
                   v-model="taskSimple.share.enabled"
                   active-text="开"
                   inactive-text="关"
-                  @change="(v: any) => toggleSimpleTask('share', v as boolean)"
+                  :loading="switchSaving.share"
+                  @change="(v: any) => toggleTaskEnabled('share', v as boolean)"
                 />
+                <span class="inline-tip" v-if="isTaskDisabled('share')">
+                  已关闭：其他选项暂时不可编辑（打开开关即可恢复）
+                </span>
               </el-form-item>
               <el-form-item label="调度方式">
-                <el-radio-group v-model="simpleSchedule.share.schedule_mode">
+                <el-radio-group
+                  v-model="simpleSchedule.share.schedule_mode"
+                  :disabled="isTaskDisabled('share')"
+                >
                   <el-radio-button label="fixed">固定时间</el-radio-button>
                   <el-radio-button label="random">随机时间</el-radio-button>
                 </el-radio-group>
               </el-form-item>
               <el-form-item v-if="simpleSchedule.share.schedule_mode === 'fixed'" label="执行时间">
-                <el-time-picker v-model="simpleSchedule.share.fixed_time" format="HH:mm" value-format="HH:mm" />
+                <el-time-picker
+                  v-model="simpleSchedule.share.fixed_time"
+                  format="HH:mm"
+                  value-format="HH:mm"
+                  :disabled="isTaskDisabled('share')"
+                />
               </el-form-item>
               <template v-else>
                 <el-form-item label="时间范围">
-                  <el-time-picker v-model="simpleSchedule.share.random_start" format="HH:mm" value-format="HH:mm" placeholder="开始" />
+                  <el-time-picker
+                    v-model="simpleSchedule.share.random_start"
+                    format="HH:mm"
+                    value-format="HH:mm"
+                    placeholder="开始"
+                    :disabled="isTaskDisabled('share')"
+                  />
                   <span style="margin: 0 8px">至</span>
-                  <el-time-picker v-model="simpleSchedule.share.random_end" format="HH:mm" value-format="HH:mm" placeholder="结束" />
+                  <el-time-picker
+                    v-model="simpleSchedule.share.random_end"
+                    format="HH:mm"
+                    value-format="HH:mm"
+                    placeholder="结束"
+                    :disabled="isTaskDisabled('share')"
+                  />
                 </el-form-item>
                 <el-form-item label="最小间隔">
-                  <el-input-number v-model="simpleSchedule.share.min_interval_minutes" :min="5" :max="240" :step="5" />
+                  <el-input-number
+                    v-model="simpleSchedule.share.min_interval_minutes"
+                    :min="5"
+                    :max="240"
+                    :step="5"
+                    :disabled="isTaskDisabled('share')"
+                  />
                   <span class="form-tip">分钟</span>
                 </el-form-item>
               </template>
               <el-form-item>
-                <el-button type="primary" :loading="saving" @click="saveSimpleConfig('share')">保存分享配置</el-button>
-                <el-button :loading="testing" @click="testTask('share')">立即测试</el-button>
+                <el-button
+                  type="primary"
+                  :loading="saving"
+                  :disabled="isTaskDisabled('share')"
+                  @click="saveSimpleConfig('share')"
+                >保存分享配置</el-button>
+                <el-button
+                  :loading="testing"
+                  :disabled="isTaskDisabled('share')"
+                  @click="testTask('share')"
+                >立即测试</el-button>
               </el-form-item>
             </el-form>
           </KyiCard>
@@ -776,5 +1016,31 @@ function notifyDeveloping(): void {
   font-size: 13px;
   color: var(--kyi-text-secondary);
   max-width: 360px;
+}
+
+/* 0.2.1 任务禁用态：整卡变灰（"启用任务"开关除外） */
+.disabled-task-card {
+  position: relative;
+  filter: grayscale(0.2);
+  opacity: 0.82;
+  background-color: rgba(144, 147, 153, 0.03) !important;
+  border: 1px dashed rgba(144, 147, 153, 0.35) !important;
+  transition: opacity 0.2s ease;
+}
+.disabled-task-card:hover {
+  opacity: 0.92;
+}
+
+/* 开关行内提示 */
+.inline-tip {
+  margin-left: 12px;
+  font-size: 12px;
+  color: var(--kyi-text-secondary);
+  font-style: italic;
+}
+
+/* 禁用态 tier-row：按钮/输入框视觉更淡 */
+.row-disabled {
+  opacity: 0.85;
 }
 </style>

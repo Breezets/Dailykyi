@@ -19,7 +19,11 @@ from app.schemas.task import (
     DashboardStats,
     DashboardUpcoming,
 )
-from app.services.exp_service import compute_lv6_estimate, compute_today_exp_gain
+from app.services.exp_service import (
+    compute_lv6_estimate,
+    compute_today_exp_gain,
+    compute_today_exp_split,
+)
 from app.services.scheduler import scheduler
 
 router = APIRouter()
@@ -46,6 +50,8 @@ async def get_dashboard(
     for acc in accounts_orm:
         # 当日经验增量（用 ExpSnapshot 快照对比，fallback 到 TaskLog 汇总）
         today_exp = await compute_today_exp_gain(db, acc)
+        # 0.2.1：经验拆分（平台/其他设备/合计）
+        today_exp_split = await compute_today_exp_split(db, acc)
         # LV6 预估（基于最近 7 天快照日均经验）
         lv6_est = await compute_lv6_estimate(db, acc, today_exp)
 
@@ -59,6 +65,7 @@ async def get_dashboard(
                 next_level_exp=acc.next_level_exp,
                 coins=acc.coins,
                 today_exp_gained=today_exp,
+                today_exp_split=today_exp_split,
                 lv6_estimate=lv6_est,
             )
         )

@@ -68,6 +68,8 @@ class DashboardAccount(BaseModel):
     next_level_exp: int = 0
     coins: int = 0
     today_exp_gained: int = 0
+    # 0.2.1 新增：今日经验拆分（平台获得/其他设备获得/合计）
+    today_exp_split: dict[str, Any] | None = None
     lv6_estimate: dict[str, Any] | None = None
 
 

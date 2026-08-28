@@ -11,7 +11,7 @@ from loguru import logger
 from app.config import LOG_DIR, settings
 from app.database import init_db
 from app.exceptions import register_exception_handlers
-from app.routers import accounts, auth, dashboard, health, logs, system, tasks
+from app.routers import accounts, auth, dashboard, exp, health, logs, system, tasks
 from app.services.scheduler import init_scheduler, shutdown_scheduler
 
 
@@ -92,6 +92,7 @@ app.include_router(tasks.router, prefix="/api/v1/tasks", tags=["tasks"])
 app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["dashboard"])
 app.include_router(accounts.router, prefix="/api/v1/accounts", tags=["accounts"])
 app.include_router(logs.router, prefix="/api/v1/logs", tags=["logs"])
+app.include_router(exp.router, prefix="/api/v1/exp", tags=["exp"])
 app.include_router(system.router, prefix="/api/v1/system", tags=["system"])
 
 

@@ -13,6 +13,16 @@ export interface Lv6Estimate {
   already_reached: boolean;
 }
 
+/** 0.2.1 新增：今日经验拆分（总/平台/其他设备） */
+export interface TodayExpSplit {
+  total: number;          // 今日总经验
+  platform: number;       // 平台通过执行任务获得
+  other: number;          // 其他设备 / 其他方式获得
+  baseline_exp: number;   // 计算起点（24h 前快照 exp）
+  current_exp: number;    // 当前经验
+  has_baseline_snapshot: boolean; // 是否有 24h 基线快照
+}
+
 export interface DashboardAccount {
   uid: number;
   username: string | null;
@@ -22,6 +32,7 @@ export interface DashboardAccount {
   next_level_exp: number;
   coins: number;
   today_exp_gained: number;
+  today_exp_split: TodayExpSplit | null;
   lv6_estimate: Lv6Estimate | null;
 }
 

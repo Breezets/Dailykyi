@@ -8,14 +8,20 @@
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, func
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 
 
 class ExpSnapshot(Base):
-    """账号经验定期快照（每 6 小时由 scheduler 写一条）。"""
+    """账号经验定期快照。
+
+    来源（source）：
+      - task：任务执行后主动写（refresh_exp_snapshot）
+      - passive：6 小时定时被动快照（_exp_snapshot_job，会调 B 站 nav 刷新）
+      - manual：用户在首页点击「校验经验」主动触发
+    """
 
     __tablename__ = "exp_snapshots"
 
@@ -29,6 +35,11 @@ class ExpSnapshot(Base):
     exp: Mapped[int] = mapped_column(Integer, nullable=False, comment="快照时的 current_exp")
     level: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     coins: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    source: Mapped[str] = mapped_column(
+        String(16), default="task", server_default="task",
+        nullable=False, index=True,
+        comment="task(任务执行)/passive(6h定时)/manual(手动校验)",
+    )
     recorded_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.now, server_default=func.now(), nullable=False, index=True
     )

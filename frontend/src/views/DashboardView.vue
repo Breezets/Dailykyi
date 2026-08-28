@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
 import { useAuthStore } from "@/stores/auth";
-import { getDashboard, type DashboardResponse } from "@/api/dashboard";
+import { getDashboard, type DashboardResponse, type DashboardAccount } from "@/api/dashboard";
+import { refreshExp } from "@/api/account";
 import { getDailyHomeMascot } from "@/utils/mascot";
+import { ElMessage } from "element-plus";
 
 const auth = useAuthStore();
 const username = computed(() => auth.user.username || "管理员");
@@ -11,7 +13,10 @@ const dailyMascot = getDailyHomeMascot();
 const loading = ref(false);
 const data = ref<DashboardResponse | null>(null);
 
-onMounted(async () => {
+/** 手动校验经验 loading：uid -> true */
+const refreshingUids = ref<Record<number, boolean>>({});
+
+async function loadData() {
   loading.value = true;
   try {
     data.value = await getDashboard();
@@ -20,7 +25,42 @@ onMounted(async () => {
   } finally {
     loading.value = false;
   }
-});
+}
+
+onMounted(loadData);
+
+/** 0.2.1 新增：手动校验单账号经验 */
+async function onRefreshExp(acc: DashboardAccount) {
+  if (refreshingUids.value[acc.uid]) return;
+  refreshingUids.value[acc.uid] = true;
+  try {
+    const res = await refreshExp(acc.uid);
+    // 更新本地账号数据（立即反映到 UI）
+    if (data.value) {
+      const idx = data.value.accounts.findIndex((a) => a.uid === acc.uid);
+      if (idx >= 0) {
+        const updated = { ...data.value.accounts[idx] };
+        updated.level = res.level;
+        updated.coins = res.coins;
+        updated.current_exp = res.after_exp;
+        updated.today_exp_gained = res.today_exp_split.total;
+        updated.today_exp_split = res.today_exp_split;
+        // 重新计算 lv6_estimate（这里不重新算，简单处理就保持原数值，用户刷新后会更新）
+        data.value.accounts.splice(idx, 1, updated);
+      }
+    }
+    if (res.delta > 0) {
+      ElMessage.success(`同步成功：经验 +${res.delta}，当前 ${res.after_exp}`);
+    } else {
+      ElMessage.success(`同步成功：经验无变化，当前 ${res.after_exp}`);
+    }
+  } catch (err: any) {
+    const msg = err?.message || err?.detail || "校验失败";
+    ElMessage.error(`校验失败：${msg}`);
+  } finally {
+    refreshingUids.value[acc.uid] = false;
+  }
+}
 
 const accountCount = computed(() => data.value?.accounts.length ?? 0);
 const todayExp = computed(() => {
@@ -53,6 +93,18 @@ const statusColor: Record<string, string> = {
   failed: "var(--kyi-danger)",
   skipped: "var(--kyi-text-secondary)",
 };
+
+/** 日志显示「获得 X，当前 Y」格式：兼容老日志（无 after_exp）只显示 +X */
+function formatLogExp(log: any): string {
+  const detail = log.detail || (log as any);
+  const after = Number(detail?.after_exp);
+  const gained = Number(log.exp_gained || 0);
+  if (!Number.isNaN(after) && after > 0 && gained > 0) {
+    return `+${gained}，当前 ${after}`;
+  }
+  if (gained > 0) return `+${gained}`;
+  return "";
+}
 </script>
 
 <template>
@@ -85,7 +137,12 @@ const statusColor: Record<string, string> = {
     <div class="dashboard-grid">
       <!-- 账号概览 -->
       <el-card class="section-card" shadow="never">
-        <template #header><span class="section-title">账号概览</span></template>
+        <template #header>
+          <div class="section-header">
+            <span class="section-title">账号概览</span>
+            <span class="section-tip">在其他设备完成任务后，点「校验」同步经验</span>
+          </div>
+        </template>
         <div v-if="!data?.accounts.length" class="empty-text">还没有账号</div>
         <div v-else class="account-list">
           <div v-for="acc in data.accounts" :key="acc.uid" class="account-item">
@@ -96,8 +153,28 @@ const statusColor: Record<string, string> = {
                 经验 {{ acc.current_exp }} / {{ acc.next_level_exp }}
                 <span class="account-coins">硬币 {{ acc.coins }}</span>
               </div>
+              <!-- 0.2.1：经验拆分显示（合计 / 平台 / 其他） -->
+              <div class="account-exp-split" v-if="acc.today_exp_split">
+                <span class="split-total">今日 +{{ acc.today_exp_split.total }}</span>
+                <span class="split-sep">·</span>
+                <span class="split-platform">平台 {{ acc.today_exp_split.platform }}</span>
+                <span class="split-sep">·</span>
+                <span class="split-other">其他 {{ acc.today_exp_split.other }}</span>
+                <span v-if="!acc.today_exp_split.has_baseline_snapshot" class="split-tip">(首日)</span>
+              </div>
+              <div class="account-exp-split" v-else>
+                <span class="split-total">今日 +{{ acc.today_exp_gained }}</span>
+              </div>
             </div>
-            <div class="account-today">+{{ acc.today_exp_gained }} exp</div>
+            <div class="account-actions">
+              <el-button
+                size="small"
+                type="primary"
+                plain
+                :loading="!!refreshingUids[acc.uid]"
+                @click="onRefreshExp(acc)"
+              >校验经验</el-button>
+            </div>
           </div>
         </div>
       </el-card>
@@ -111,6 +188,14 @@ const statusColor: Record<string, string> = {
         <div v-else class="lv6-list">
           <div v-for="acc in data.accounts" :key="acc.uid" class="lv6-row">
             <div class="lv6-name">{{ acc.username || `UID:${acc.uid}` }}</div>
+
+            <!-- 0.2.1：经验拆分行（合计 / 平台 / 其他） -->
+            <div class="lv6-exp-split" v-if="acc.today_exp_split">
+              <span class="lv6-es-total">今日合计 <strong>+{{ acc.today_exp_split.total }}</strong></span>
+              <span class="lv6-es-platform">平台 +{{ acc.today_exp_split.platform }}</span>
+              <span class="lv6-es-other">其他 +{{ acc.today_exp_split.other }}</span>
+            </div>
+
             <div v-if="acc.lv6_estimate?.already_reached" class="lv6-reached">
               已达 LV{{ acc.lv6_estimate.current_level }} ✨
             </div>
@@ -125,7 +210,7 @@ const statusColor: Record<string, string> = {
                 <span class="lv6-date">({{ acc.lv6_estimate.est_date }})</span>
               </div>
               <div v-else class="lv6-no-data">
-                数据不足：需积累 2 次以上经验快照（每 6h 一次，需等待 ≥6h）
+                数据不足：需积累 2 次以上经验快照（每 6h 一次，或点「校验经验」补充）
               </div>
             </div>
           </div>
@@ -166,7 +251,8 @@ const statusColor: Record<string, string> = {
           <span class="log-account">{{ log.account_name || log.account_uid }}</span>
           <span class="log-type">{{ taskTypeMap[log.task_type] || log.task_type }}</span>
           <span class="log-status" :style="{ color: statusColor[log.status] || 'inherit' }">{{ log.status }}</span>
-          <span class="log-exp" v-if="log.exp_gained">+{{ log.exp_gained }}exp</span>
+          <!-- 0.2.1："获得 X，当前 Y" 格式，兼容老日志 -->
+          <span class="log-exp" v-if="formatLogExp(log)">{{ formatLogExp(log) }}</span>
           <span class="log-msg" v-if="log.message">{{ log.message }}</span>
         </div>
       </div>
@@ -285,6 +371,19 @@ const statusColor: Record<string, string> = {
   border-radius: var(--kyi-border-radius);
 }
 
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.section-tip {
+  font-size: 12px;
+  color: var(--kyi-text-secondary);
+  font-weight: 400;
+}
+
 .section-title {
   font-weight: 600;
   color: var(--kyi-text);
@@ -307,6 +406,10 @@ const statusColor: Record<string, string> = {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.account-actions {
+  flex-shrink: 0;
 }
 
 .account-avatar {
@@ -348,6 +451,40 @@ const statusColor: Record<string, string> = {
   margin-left: 8px;
 }
 
+/* 0.2.1：账号经验拆分 */
+.account-exp-split {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--kyi-text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.split-total {
+  color: var(--kyi-success);
+  font-weight: 600;
+}
+
+.split-platform {
+  color: var(--kyi-primary);
+}
+
+.split-other {
+  color: var(--kyi-secondary);
+}
+
+.split-sep {
+  opacity: 0.4;
+}
+
+.split-tip {
+  font-size: 11px;
+  opacity: 0.7;
+  font-style: italic;
+}
+
 .account-today {
   font-size: 14px;
   font-weight: 600;
@@ -379,6 +516,34 @@ const statusColor: Record<string, string> = {
   font-size: 14px;
   font-weight: 600;
   color: var(--kyi-text);
+}
+
+/* 0.2.1：LV6 卡片经验拆分 */
+.lv6-exp-split {
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 4px 10px;
+  background: rgba(251, 114, 153, 0.06);
+  border-radius: 6px;
+}
+
+.lv6-es-total {
+  color: var(--kyi-text-secondary);
+}
+
+.lv6-es-total strong {
+  color: var(--kyi-success);
+}
+
+.lv6-es-platform {
+  color: var(--kyi-primary);
+}
+
+.lv6-es-other {
+  color: var(--kyi-secondary);
 }
 
 .lv6-reached {

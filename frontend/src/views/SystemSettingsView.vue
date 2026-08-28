@@ -14,6 +14,7 @@ import {
   type UpgradeCheckResult,
 } from "@/api/system";
 import KyiCard from "@/components/KyiCard.vue";
+import { SITE } from "@/constants/site";
 
 const theme = useThemeStore();
 const auth = useAuthStore();
@@ -62,13 +63,22 @@ onMounted(() => {
   checkVersion();
 });
 
-/** 获取当前版本（/ 根接口） */
+/** 获取当前版本：优先用 /api/v1/health（健康检查自带 version）
+ *  失败则 fallback 到前端内置 site.version（这样就不会抛 404 弹 Not Found）。
+ *  之前版本错误地请求了 "/api/v1/"（不存在该路由）→ 后端 404 → 页面弹 Not Found
+ */
 async function checkVersion(): Promise<void> {
   try {
-    const res = await request.get<unknown, { version?: string }>("/");
-    currentVersion.value = res.version || "";
+    const res = await request.get<unknown, { version?: string; status?: string }>("/health");
+    if (res?.version) {
+      currentVersion.value = res.version;
+      return;
+    }
   } catch {
-    // 忽略
+    // 忽略，fallback 到本地 site.version
+  }
+  if (!currentVersion.value) {
+    currentVersion.value = SITE.version || "";
   }
 }
 
@@ -351,26 +361,26 @@ async function runTestFail(): Promise<void> {
         </el-form>
       </KyiCard>
 
-      <!-- 版本与升级（0.2.0） -->
-      <KyiCard title="版本与升级" icon="🚀" color="#23ADE5" class="debug-card version-card">
+      <!-- 版本与升级（0.2.1 独立长方卡，不再横版全宽） -->
+      <KyiCard title="版本与升级" icon="🚀" color="#23ADE5" class="version-card">
         <div class="version-banner">
           <div class="version-banner__mascots">
             <img src="/mascots/down/1.png" alt="22 & 33" class="version-banner__mascot-img" />
           </div>
           <div class="version-banner__text">
-            <div class="version-banner__ver">v{{ currentVersion || "?" }}</div>
+            <div class="version-banner__ver">v{{ currentVersion || SITE.version }}</div>
             <div class="version-banner__sub">22 &amp; 33 持续守护中</div>
           </div>
         </div>
 
-        <div class="debug-section">
-          <div class="debug-head">
-            <div>
-              <div class="debug-title">检查 GitHub 上的新版本</div>
-              <div class="form-tip">
-                仓库 breezets/Dailykyi。检查失败时（如网络不通）会静默降级，不影响使用。
-              </div>
+        <div class="version-section">
+          <div class="section-intro">
+            <div class="debug-title">检查 GitHub 上的新版本</div>
+            <div class="form-tip">
+              仓库 breezets/Dailykyi。检查失败时（如网络不通）会静默降级，不影响使用。
             </div>
+          </div>
+          <div class="section-actions">
             <el-button
               type="primary"
               plain
@@ -423,17 +433,17 @@ async function runTestFail(): Promise<void> {
         </div>
       </KyiCard>
 
-      <!-- 调试与诊断（Debug） -->
-      <KyiCard title="调试与诊断" icon="🧪" color="#8C52FF" class="debug-card">
+      <!-- 调试与诊断（Debug）0.2.1：改为独立长方卡 -->
+      <KyiCard title="调试与诊断" icon="🧪" color="#8C52FF">
         <div class="debug-section">
-          <div class="debug-head">
-            <div>
-              <div class="debug-title">失败通知真实测试</div>
-              <div class="form-tip">
-                会走完整 NotifyService.send_task_result(success=false) 链路，
-                与真实任务失败时完全相同。用来验证 Server酱 Key、开关、免打扰时段。
-              </div>
+          <div class="section-intro">
+            <div class="debug-title">失败通知真实测试</div>
+            <div class="form-tip">
+              会走完整 NotifyService.send_task_result(success=false) 链路，
+              与真实任务失败时完全相同。用来验证 Server酱 Key、开关、免打扰时段。
             </div>
+          </div>
+          <div class="section-actions">
             <el-button type="danger" plain :loading="testingFail" @click="runTestFail">
               {{ testingFail ? '测试中...' : '发送一次失败通知测试' }}
             </el-button>
@@ -482,9 +492,13 @@ async function runTestFail(): Promise<void> {
   gap: 20px;
 }
 
-/* Debug card 占两列 */
-.debug-card {
-  grid-column: 1 / -1;
+/* 调试与诊断 section 独立容器（0.2.1 不再让 .debug-card 横版全宽，
+   6 个卡片都按自适应网格对齐）*/
+.debug-section,
+.version-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 /* 版本与升级卡片：2233 主题美化 */
@@ -495,12 +509,12 @@ async function runTestFail(): Promise<void> {
 .version-banner {
   display: flex;
   align-items: center;
-  gap: 18px;
-  padding: 20px 22px;
-  border-radius: 14px;
+  gap: 16px;
+  padding: 16px 18px;
+  border-radius: 12px;
   background: linear-gradient(135deg, rgba(251, 114, 153, 0.12), rgba(35, 173, 229, 0.12));
   border: 1px solid rgba(251, 114, 153, 0.18);
-  margin-bottom: 18px;
+  margin-bottom: 16px;
 }
 
 .version-banner__mascots {
@@ -509,11 +523,13 @@ async function runTestFail(): Promise<void> {
   flex-shrink: 0;
 }
 
+/* 0.2.1：2233 照片比例 3:2（1.5:1），显示完整内容 + 更大更清晰 */
 .version-banner__mascot-img {
-  width: 64px;
-  height: 64px;
+  width: 120px;
+  aspect-ratio: 3 / 2;
   object-fit: cover;
-  border-radius: 12px;
+  object-position: center top;
+  border-radius: 10px;
   box-shadow: 0 4px 12px rgba(251, 114, 153, 0.25), 0 2px 6px rgba(35, 173, 229, 0.18);
 }
 
@@ -630,17 +646,29 @@ async function runTestFail(): Promise<void> {
 }
 
 /* Debug 板块 */
-.debug-section {
+.debug-section,
+.version-section {
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
-.debug-head {
+
+/* Debug / 版本升级板块 section 容器：统一"说明在上，操作按钮在下"的两行布局
+ *  与「通知设置」「风控设置」等其他卡片（保存按钮在表单下方）保持一致。
+ */
+.section-intro {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
+  flex-direction: column;
+  gap: 4px;
 }
+
+.section-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
 .debug-title {
   font-size: 14px;
   font-weight: 600;
@@ -707,8 +735,8 @@ async function runTestFail(): Promise<void> {
   .settings-grid {
     grid-template-columns: 1fr;
   }
-  .debug-head {
-    flex-direction: column;
+  .section-actions {
+    justify-content: flex-start;
   }
 }
 

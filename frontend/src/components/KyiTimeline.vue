@@ -16,7 +16,9 @@ interface DisplayItem {
   statusIcon: typeof Check;
   statusColor: string;
   message: string;
-  exp: number;
+  exp_gained: number;
+  exp_after: number | null;   // 0.2.1：任务完成后当前经验
+  exp_text: string;          // 0.2.1：直接显示的文字：「获得 50，当前 12345」
 }
 
 const items = computed<DisplayItem[]>(() =>
@@ -32,15 +34,51 @@ const items = computed<DisplayItem[]>(() =>
       pending: { icon: Loading, color: "var(--kyi-text-secondary)" },
     };
     const mapped = statusMap[log.status] || statusMap.pending;
+
+    // 0.2.1：从 detail / after_exp 解析当前经验
+    const gained = Number(log.exp_gained || 0);
+    const rawDetail = (log as any)?.detail as any;
+    let detailObj: any = null;
+    if (rawDetail != null && rawDetail !== "") {
+      if (typeof rawDetail === "object") {
+        detailObj = rawDetail;
+      } else if (typeof rawDetail === "string") {
+        try {
+          detailObj = JSON.parse(rawDetail);
+        } catch {
+          // ignore
+        }
+      }
+    }
+    const after = detailObj?.after_exp != null ? Number(detailObj.after_exp) : null;
+    let expText = "";
+    if (gained > 0 && after != null && !Number.isNaN(after) && after > 0) {
+      expText = `获得 ${gained}，当前 ${after}`;
+    } else if (gained > 0) {
+      expText = `+${gained} 经验`;
+    }
+
+    // 标题 task_type 改成中文友好名
+    const taskTypeMap: Record<string, string> = {
+      coin: "投币",
+      watch: "观看",
+      share: "分享",
+      live_sign: "直播签到",
+      silver2coin: "银瓜子换币",
+    };
+    const taskName = taskTypeMap[log.task_type] || log.task_type;
+
     return {
       id: log.id,
       time: formatDate(log.created_at, "HH:mm:ss"),
-      title: `${log.account_name || log.account_uid} · ${log.task_type}`,
+      title: `${log.account_name || log.account_uid} · ${taskName}`,
       status: log.status,
       statusIcon: mapped.icon,
       statusColor: mapped.color,
       message: log.message || "",
-      exp: log.exp_gained || 0,
+      exp_gained: gained,
+      exp_after: after,
+      exp_text: expText,
     };
   })
 );
@@ -64,7 +102,8 @@ const items = computed<DisplayItem[]>(() =>
           </el-tag>
         </div>
         <div class="timeline-item__message">{{ item.message }}</div>
-        <div v-if="item.exp > 0" class="timeline-item__exp">+{{ item.exp }} 经验</div>
+        <!-- 0.2.1：升级为「获得 X，当前 Y」格式，兼容老日志只有 +X -->
+        <div v-if="item.exp_text" class="timeline-item__exp">{{ item.exp_text }}</div>
       </div>
     </el-timeline-item>
   </el-timeline>
@@ -97,7 +136,13 @@ const items = computed<DisplayItem[]>(() =>
 }
 
 .timeline-item__exp {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--kyi-primary);
+  font-weight: 600;
+  padding: 2px 8px;
+  background: rgba(35, 173, 229, 0.08);
+  border-radius: 4px;
+  display: inline-block;
+  width: fit-content;
 }
 </style>

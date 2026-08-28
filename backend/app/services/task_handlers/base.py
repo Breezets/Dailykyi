@@ -34,6 +34,8 @@ class BaseTaskHandler(ABC):
         self.account: Account = account
         self.db: AsyncSession = db
         self.client: BiliClient | None = None
+        # 0.2.1 新增：refresh_exp_snapshot 会填入这里，供调度器统一写入 TaskLog.detail
+        self.last_exp_info: dict[str, int] | None = None
 
     async def init_client(self) -> BiliClient:
         """从 account.cookie_encrypted 解密后创建 BiliClient。"""
@@ -84,13 +86,22 @@ class BaseTaskHandler(ABC):
         self.account.current_exp = _safe_int(level_info.get("current_exp", 0))
         self.account.next_level_exp = _safe_int(level_info.get("next_exp", 0))
 
-    async def refresh_exp_snapshot(self) -> int:
+    async def refresh_exp_snapshot(self, source: str = "task") -> int:
         """任务执行完成后调用：刷新 account.current_exp 并写一条 ExpSnapshot。
+
+        参数：
+          source: 快照来源
+            - 'task'   : 任务执行完成主动写入（默认）
+            - 'passive': 6 小时定时任务被动写入（会调 B 站 nav 刷新）
+            - 'manual' : 用户点击首页「校验经验」按钮主动触发
 
         返回值：与最近一条 ExpSnapshot 的 exp 差值（delta）。
           - delta > 0：本次执行真的获得了经验
           - delta = 0：本次没获得经验（可能别处已完成，B 站服务端去重）
           - delta < 0：异常情况（经验被减少），按 0 处理
+
+        副作用：self.last_exp_info 被填入 {before_exp, after_exp, delta}，
+               供 scheduler.execute_task 统一写入 TaskLog.detail。
 
         实现逻辑：
           1. 调 nav 接口拿最新 current_exp（绕过任务缓存的过期值）
@@ -112,6 +123,7 @@ class BaseTaskHandler(ABC):
             logger.warning(
                 f"refresh_exp_snapshot 调 nav 失败 uid={self.account.uid}: {exc}"
             )
+            self.last_exp_info = None
             return 0
 
         # 2. 查最近一条快照
@@ -125,13 +137,14 @@ class BaseTaskHandler(ABC):
         last_snap = last_snap_result.scalar_one_or_none()
         last_exp = int(last_snap.exp) if last_snap else 0
 
-        # 3. 写新快照
+        # 3. 写新快照（带 source）
         new_exp = int(self.account.current_exp or 0)
         snap = ExpSnapshot(
             account_uid=self.account.uid,
             exp=new_exp,
             level=int(self.account.level or 0),
             coins=int(self.account.coins or 0),
+            source=source,
             recorded_at=datetime.now(),
         )
         self.db.add(snap)
@@ -139,8 +152,16 @@ class BaseTaskHandler(ABC):
 
         # 4. 计算 delta
         delta = max(0, new_exp - last_exp)
+
+        # 0.2.1：存入临时属性，供 TaskLog.detail 展示"加多少，现在多少"
+        self.last_exp_info = {
+            "before_exp": last_exp,
+            "after_exp": new_exp,
+            "delta": delta,
+        }
+
         logger.info(
-            f"refresh_exp_snapshot uid={self.account.uid} "
+            f"refresh_exp_snapshot[{source}] uid={self.account.uid} "
             f"last={last_exp} new={new_exp} delta={delta}"
         )
         return delta

@@ -2,6 +2,7 @@
 
 import request from "./request";
 import type { Account } from "@/types";
+import type { TodayExpSplit } from "./dashboard";
 
 export async function getAccounts(): Promise<Account[]> {
   const res = await request.get<unknown, Account[]>("/accounts");
@@ -18,6 +19,22 @@ export async function deleteAccount(uid: number): Promise<void> {
 
 export async function refreshCookie(uid: number): Promise<void> {
   await request.post(`/accounts/${uid}/refresh`);
+}
+
+/** 0.2.1 新增：手动校验经验。调 B 站 nav 刷新并写 source=manual 快照。 */
+export interface RefreshExpResult {
+  message: string;
+  uid: number;
+  before_exp: number;
+  after_exp: number;
+  delta: number;
+  level: number;
+  coins: number;
+  today_exp_split: TodayExpSplit;
+}
+
+export async function refreshExp(uid: number): Promise<RefreshExpResult> {
+  return request.post<unknown, RefreshExpResult>(`/accounts/${uid}/refresh-exp`);
 }
 
 /** 立即检测所有账号 Cookie 有效性（0.2.0） */

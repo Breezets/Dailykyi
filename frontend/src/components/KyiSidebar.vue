@@ -6,6 +6,7 @@ import {
   SetUp,
   User,
   Document,
+  DataAnalysis,
   Setting,
 } from "@element-plus/icons-vue";
 import KyiThemeSwitch from "./KyiThemeSwitch.vue";
@@ -32,6 +33,7 @@ const menus: MenuItem[] = [
   { index: "/tasks", label: "任务配置", icon: SetUp },
   { index: "/accounts", label: "账号管理", icon: User },
   { index: "/logs", label: "执行日志", icon: Document },
+  { index: "/exp-logs", label: "经验日志", icon: DataAnalysis },
   { index: "/settings", label: "系统设置", icon: Setting },
 ];
 
