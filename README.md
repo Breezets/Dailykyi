@@ -11,7 +11,7 @@
   <img alt="SQLite" src="https://img.shields.io/badge/SQLite-3.x-003B57?logo=sqlite&logoColor=white"/>
   <img alt="Docker" src="https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white"/>
   <img alt="License: MIT" src="https://img.shields.io/github/license/breezets/Dailykyi?color=fb7299"/>
-  <img alt="Release" src="https://img.shields.io/badge/version-v0.2.0-23ADE5"/>
+  <img alt="Release" src="https://img.shields.io/badge/version-v0.2.1-23ADE5"/>
 </p>
 
 Dailykyi 是一个可视化的 B 站每日任务自动化工具。只需完成一次扫码登录，它会按你设定的策略自动完成 **投币 / 观看 / 分享 / 直播签到 / 银瓜子兑换** 等任务，并把执行结果推送到你的手机上。
@@ -33,6 +33,13 @@ Dailykyi 是一个可视化的 B 站每日任务自动化工具。只需完成�
 | 🔔 推送 | Server酱 微信公众号推送 · Bark iOS 推送（失败提醒 / 每日报告）· 每日汇总按用户已启用任务数触发（不再固定三任务判定） |
 | 🐳 部署 | Docker Compose 三容器编排（nginx + frontend-static + backend + sqlite持久化）· 容器时区 Asia/Shanghai 与本机一致 |
 | 🚀 升级 | 右上角快捷版本检测徽章（4h 缓存）· 一键升级 · GitHub Releases 自动检查 |
+
+### v0.2.1 新特性
+
+- **经验日志模块**：侧边栏新增「经验日志」页面，按日聚合展示经验变化，来源区分 Dailykyi 自动任务与站外其他 App，并以不同颜色标识
+- **版本与升级卡片改版**：由横版改为长方形卡片，与其余 5 个卡片尺寸统一；22 & 33 头像比例调整为 3:2（1.5:1）以完整显示内容
+- **调试与诊断卡片改版**：同步改为长方形卡片；「发送一次失败通知测试」「检查更新」两个按钮下移到标题+说明文字下方，和其它卡片保存按钮对齐
+- **面板版本检测「问号」问题修复**：健康检查 /api/v1/health 不再返回异常值，版本号正常显示
 
 ### v0.2.0 新特性
 
