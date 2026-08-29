@@ -29,7 +29,7 @@ class Settings(BaseSettings):
 
     # 应用
     APP_NAME: str = "Dailykyi"
-    APP_VERSION: str = "0.2.5"
+    APP_VERSION: str = "0.3.0BETA"
     DEBUG: bool = False
 
     # 一键升级脚本所在的宿主机项目根目录

@@ -11,7 +11,7 @@
   <img alt="SQLite" src="https://img.shields.io/badge/SQLite-3.x-003B57?logo=sqlite&logoColor=white"/>
   <img alt="Docker" src="https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white"/>
   <img alt="License: MIT" src="https://img.shields.io/github/license/breezets/Dailykyi?color=fb7299"/>
-  <img alt="Release" src="https://img.shields.io/badge/version-v0.2.5-23ADE5"/>
+  <img alt="Release" src="https://img.shields.io/badge/version-v0.3.0BETA-23ADE5"/>
 </p>
 
 Dailykyi 是一个可视化的 B 站每日任务自动化工具。只需完成一次扫码登录，它会按你设定的策略自动完成 **投币 / 观看 / 分享 / 直播签到 / 银瓜子兑换** 等任务，并把执行结果推送到你的手机上。
@@ -34,33 +34,19 @@ Dailykyi 是一个可视化的 B 站每日任务自动化工具。只需完成�
 | 🐳 部署 | Docker Compose 三容器编排（nginx + frontend-static + backend + sqlite持久化）· 容器时区 Asia/Shanghai 与本机一致 |
 | 🚀 升级 | 右上角快捷版本检测徽章（4h 缓存）· 一键升级 · GitHub Releases 自动检查 |
 
-### v0.2.5 新特性
+### v0.3.0BETA 新特性
 
-- **project.md 不再跟随开源仓库发布**：已加入 `.gitignore` 并从 git 追踪中移除（本地开发自用文档保留）
-- **术语修正**：README 与前端源码中的「吉祥物」统一改为官方称呼「2233娘」（含 UI alt 属性与工具说明）
-- **修复系统设置一键升级报错「升级脚本不存在: /scripts/update.sh」**（从 0.2.0/0.2.1 升级常见问题）
-  - 后端升级服务现在按 5 条路径依次查找脚本，报错时给出「已搜索的路径 + 三种解决方法」
-  - Docker 生产 compose 默认把项目根 bind-mount 进容器 `/host`，后端容器内即可执行宿主机的升级流程
-  - Dockerfile 默认把 `scripts/` 和 `docker-compose.yml` 打进后端镜像兜底；容器内预装 bash + docker CLI
-  - `scripts/update.sh` 现在同时支持「源码模式 (git pull→build→up -d)」和「纯镜像模式 (pull→up -d)」
-- **真正的 Docker 一键部署脚本**：`scripts/install-docker.sh`，支持 `curl | bash` 一行部署，**不需要 `git clone` / 不需要 npm / 不需要 python**（详见方式一·A 一键脚本）
-- **部署文档按你要求重写**：本地部署 / Docker 分批手动部署 / Docker 一键脚本部署 三种形态独立小节
-
-### v0.2.1 新特性
-
-- **经验日志模块**：侧边栏新增「经验日志」页面，按日聚合展示经验变化，来源区分 Dailykyi 自动任务与站外其他 App，并以不同颜色标识
-- **版本与升级卡片改版**：由横版改为长方形卡片，与其余 5 个卡片尺寸统一；22 & 33 头像比例调整为 3:2（1.5:1）以完整显示内容
-- **调试与诊断卡片改版**：同步改为长方形卡片；「发送一次失败通知测试」「检查更新」两个按钮下移到标题+说明文字下方，和其它卡片保存按钮对齐
-- **面板版本检测「问号」问题修复**：健康检查 /api/v1/health 不再返回异常值，版本号正常显示
-
-### v0.2.0 新特性
-
-- **经验快照机制**：每 6 小时自动记录一次账号经验 + 任务执行后主动记录一次，前后对比真实经验 delta，杜绝任务虚报 +5 的历史 bug
-- **LV6 预估**：基于近 7 天经验快照日均计算到达 LV6 还需天数与达成日期
-- **每日汇总按需触发**：用户启用的任务全部执行完毕后才发汇总通知（不再"三任务固定判定"）
-- **任务经验真实判定**：投币/观看/分享不再依赖 B 站接口 bool 状态，改用经验快照 delta 准确判断是否真获得经验（可识别"别处设备已完成"场景）
-- **日志时间本地化**：修复容器时区导致日志显示晚 8 小时的问题
-- **快捷版本徽章**：右上角仅在有新版本时显示，4h 缓存避免频繁打 GitHub API
+- **构建修复**：修复 `docker compose up -d --build` 构建 backend 时失败的问题
+  - 调整生产/开发 compose 的 backend build context 为项目根（`context: .` + `dockerfile: backend/Dockerfile`），避免 COPY scripts/ / docker-compose.yml 找不到
+  - Dockerfile COPY 路径增加 `backend/` 前缀，保证 requirements.txt / app/ 代码正确复制
+  - 修正 backend Dockerfile 末尾 CMD 语法（port 参数 JSON 合法，并去掉重复拼错的尾巴）
+  - 去掉 Debian Trixie 仓库不存在的 `docker-compose-plugin`，避免 apt 安装失败
+- **系统设置一键升级报错修复**（从 0.2.0/0.2.1 升级常见问题）
+  - 后端升级服务按 5 条路径查找脚本，找不到时返回「已搜索路径清单 + 3 条解决方法」
+  - Docker 生产 compose 默认 bind-mount 项目根到 `/host`，并挂 `docker.sock` 便于容器内脚本调用宿主机 docker compose
+  - `scripts/update.sh` 支持「源码模式（git pull→build→up -d）」和「纯镜像模式（pull→up -d）」双模式自动切换
+- **Docker 一键脚本部署**：`scripts/install-docker.sh`，`curl | bash` 一行部署，不需要 git clone / Node / Python
+- **部署文档整理**：本地部署 / Docker 分批手动部署 / Docker 一键脚本部署 三种形态独立小节，常用参数移到小节末尾，去掉过时提醒
 
 ---
 
@@ -75,7 +61,7 @@ Dailykyi 是一个可视化的 B 站每日任务自动化工具。只需完成�
 
 ---
 
-### 方式一 · A：Docker 一键脚本部署（**最推荐·真·一行**）
+### 方式一 · A：Docker 一键脚本部署（最推荐）
 
 **不需要 `git clone`，不需要安装 Node/Python，仅需服务器有 Docker**：
 - 自动拉最新官方镜像
@@ -88,7 +74,16 @@ Dailykyi 是一个可视化的 B 站每日任务自动化工具。只需完成�
 bash <(curl -sSL https://raw.githubusercontent.com/breezets/Dailykyi/main/scripts/install-docker.sh)
 ```
 
-常用参数（脚本设计成 `curl … | bash -s -- --port …` 这种也能跑）：
+> 若你的服务器访问 GitHub raw 较慢，也可以先把脚本内容 `curl -o install.sh URL` 存下再运行 `bash install.sh`，功能完全一样。
+
+启动完成后访问：**http://服务器公网IP:23333**
+
+| 默认项 | 值 |
+|---|---|
+| 默认账号 | `2233` |
+| 默认密码 | `tv23333` |
+
+常用参数（脚本支持 `curl … | bash -s -- --port …` 直接传参）：
 
 ```bash
 # 自定义公网端口 + 默认账号密码
@@ -105,17 +100,6 @@ bash <(curl -sSL https://raw.githubusercontent.com/breezets/Dailykyi/main/script
 # 卸载（默认保留数据卷；加 --delete-data 则一并删除数据库与配置）
 bash <(curl -sSL https://raw.githubusercontent.com/breezets/Dailykyi/main/scripts/install-docker.sh) --uninstall
 ```
-
-> 若你的服务器访问 GitHub raw 较慢，也可以先把脚本内容 `curl -o install.sh URL` 存下再运行 `bash install.sh`，功能完全一样。
-
-启动完成后访问：**http://服务器公网IP:23333**
-
-| 默认项 | 值 |
-|---|---|
-| 默认账号 | `2233` |
-| 默认密码 | `tv23333` |
-
-> ⚠️ 首次登录会**强制修改默认密码**。部署到公网服务器时务必修改默认密码或使用 `--password` 参数覆盖。
 
 ---
 

@@ -1,6 +1,6 @@
 {
   "name": "dailykyi-frontend",
-  "version": "0.2.5",
+  "version": "0.3.0BETA",
   "private": true,
   "type": "module",
   "scripts": {

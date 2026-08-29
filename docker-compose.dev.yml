@@ -1,6 +1,8 @@
 services:
   backend-dev:
-    build: ./backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: dailykyi-backend-dev
     volumes:
       - ./backend:/app
